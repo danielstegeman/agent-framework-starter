@@ -1,0 +1,15 @@
+name: code-first-agent-starter
+version: 0.1.0
+description: >-
+  Skills and an orchestrator agent for building a code-first AI agent end-to-end —
+  architecture decisions (language-neutral), C# / Microsoft Agent Framework
+  implementation patterns, Azure infrastructure (Container Apps, Bicep, ADO
+  pipelines, Aspire AppHost), bootstrapping, evaluation, guardrails, and identity.
+author: code-first-agent-starter
+dependencies:
+  apm: []
+  mcp: []
+# `includes: auto` makes `apm install` walk the local .apm/ tree and deploy
+# everything it finds. Switch to an explicit list to gate what ships.
+includes: auto
+scripts: {}

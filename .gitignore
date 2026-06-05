@@ -7,5 +7,5 @@ Thumbs.db
 .idea/
 *.swp
 
-# Install artefacts
-install/.tmp/
+# APM
+apm_modules/

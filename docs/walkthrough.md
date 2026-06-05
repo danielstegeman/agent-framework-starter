@@ -4,13 +4,13 @@ A worked example of using the `code-first-agent` orchestrator on a fresh project
 
 ## Setup
 
-```powershell
-git clone <this-repo> code-first-agent-starter
-cd code-first-agent-starter
-./install/install.ps1            # installs into both Copilot and Claude (user scope)
+Install the [APM CLI](https://microsoft.github.io/apm/), then in any project where you want the skills available:
+
+```bash
+apm install <owner>/code-first-agent-starter
 ```
 
-Open a fresh Copilot Chat or Claude conversation in any workspace.
+Open a fresh Copilot Chat or Claude conversation in that workspace.
 
 ## The journey
 

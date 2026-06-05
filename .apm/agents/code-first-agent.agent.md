@@ -1,7 +1,6 @@
 ---
 name: code-first-agent
 description: Orchestrator that walks a developer end-to-end through building a code-first AI agent — from architectural decisions, through C# / Microsoft Agent Framework scaffolding, into Azure infrastructure, evaluation, guardrails, and identity. Use when the user says "help me build a code-first agent", "I want to start a new MAF agent project", "guide me through creating an agent solution", "walk me through building an agent on Azure", "expand my existing agent with X", or any equivalent request to *build or extend* a code-first agent end-to-end. For single-skill questions (e.g. "just generate the Bicep"), invoke the leaf skill directly without going through this agent.
-tools: ['read', 'edit', 'search', 'execute/runInTerminal', 'execute/getTerminalOutput']
 ---
 
 # Code-First Agent
