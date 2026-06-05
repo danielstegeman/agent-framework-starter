@@ -1,0 +1,88 @@
+# references/azure-pipelines.yml
+# Build + deploy pipeline for a code-first agent service hosted on Azure Container Apps.
+# Two stages: build (test + publish container) and deploy (revision update).
+# Uses workload-identity federation for the Azure service connection.
+
+trigger:
+  branches:
+    include: [main]
+pr:
+  branches:
+    include: [main]
+
+parameters:
+  - name: targetEnvironment
+    type: string
+    default: dev
+    values: [dev, test, prod]
+
+variables:
+  - group: agent-${{ parameters.targetEnvironment }}   # contains ACR name, ACA env name, RG, etc.
+  - name: imageRepo
+    value: agents/$(Build.Repository.Name)
+  - name: imageTag
+    value: $(Build.BuildId)
+
+stages:
+  - stage: Build
+    jobs:
+      - job: BuildAndTest
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: UseDotNet@2
+            inputs: { packageType: sdk, version: 10.x }
+
+          - script: dotnet restore
+            displayName: Restore
+
+          - script: dotnet build --configuration Release --no-restore
+            displayName: Build
+
+          - script: dotnet test --configuration Release --no-build --logger trx
+            displayName: Test
+
+          - task: PublishTestResults@2
+            condition: succeededOrFailed()
+            inputs: { testResultsFormat: VSTest, testResultsFiles: '**/*.trx' }
+
+          - task: AzureCLI@2
+            displayName: Build & push container
+            inputs:
+              azureSubscription: $(serviceConnection)
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+                az acr login --name $(acrName)
+                docker build -t $(acrName).azurecr.io/$(imageRepo):$(imageTag) \
+                              -t $(acrName).azurecr.io/$(imageRepo):latest .
+                docker push $(acrName).azurecr.io/$(imageRepo):$(imageTag)
+                docker push $(acrName).azurecr.io/$(imageRepo):latest
+
+  - stage: Deploy
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - deployment: DeployAca
+        environment: agent-${{ parameters.targetEnvironment }}
+        pool: { vmImage: ubuntu-latest }
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - task: AzureCLI@2
+                  displayName: Deploy Bicep
+                  inputs:
+                    azureSubscription: $(serviceConnection)
+                    scriptType: bash
+                    scriptLocation: inlineScript
+                    inlineScript: |
+                      az deployment group create \
+                        --resource-group $(resourceGroup) \
+                        --template-file infra/container-apps.bicep \
+                        --parameters \
+                            image=$(acrName).azurecr.io/$(imageRepo):$(imageTag) \
+                            envName=$(acaEnvName) \
+                            appName=$(acaAppName) \
+                            keyVaultName=$(keyVaultName) \
+                            appInsightsConnectionStringSecretName=$(aiSecretName)
