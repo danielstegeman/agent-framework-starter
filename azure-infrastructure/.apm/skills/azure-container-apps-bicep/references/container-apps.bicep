@@ -1,7 +1,7 @@
 // references/container-apps.bicep
 //
 // Azure Container Apps deployment for a code-first agent.
-// Uses user-assigned managed identity for: ACR pull, Azure OpenAI, Key Vault.
+// Uses user-assigned managed identity for: ACR pull, Azure AI Foundry, Key Vault.
 // References Application Insights connection string via Key Vault secret ref.
 
 param appName string
@@ -10,8 +10,8 @@ param image string
 param location string = resourceGroup().location
 param keyVaultName string
 param appInsightsConnectionStringSecretName string = 'appinsights-connection-string'
-param azureOpenAiEndpoint string
-param azureOpenAiDeploymentName string
+param foundryEndpoint string
+param foundryDeploymentName string
 
 resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${appName}-id'
@@ -62,8 +62,8 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           name: appName
           image: image
           env: [
-            { name: 'AzureOpenAI__Endpoint',       value: azureOpenAiEndpoint }
-            { name: 'AzureOpenAI__DeploymentName', value: azureOpenAiDeploymentName }
+            { name: 'AzureAIFoundry__Endpoint',       value: foundryEndpoint }
+            { name: 'AzureAIFoundry__DeploymentName', value: foundryDeploymentName }
             { name: 'AZURE_CLIENT_ID',             value: uami.properties.clientId }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
             { name: 'OTEL_SERVICE_NAME',           value: appName }

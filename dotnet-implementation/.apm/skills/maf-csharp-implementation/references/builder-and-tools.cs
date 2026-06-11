@@ -4,11 +4,11 @@
 // IServiceCollection. Demonstrates:
 //   1. Tool discovery via public methods decorated with [Description].
 //   2. Registering the tool class in DI so it can be resolved per-scope.
-//   3. Building a ChatClientAgent with AIFunctionFactory.
+//   3. Building a ChatClientAgent backed by the Azure AI Foundry model inference API.
 //   4. No custom wrapper around AIAgent. Use the SDK directly.
 
 using System.ComponentModel;
-using Azure.AI.OpenAI;
+using Azure.AI.Inference;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
@@ -28,9 +28,15 @@ public sealed class WeatherTools
     }
 }
 
-public sealed class AzureOpenAIOptions
+public sealed class AzureAIFoundryOptions
 {
+    // Azure AI Model Inference API endpoint.
+    // Format: https://<account>.services.ai.azure.com/models
+    // Provision via foundry-model-deployment; output: modelsEndpoint.
     public required string Endpoint { get; init; }
+
+    // Name of the model deployment in the Foundry account (e.g. "gpt-4o").
+    // Provision via foundry-model-deployment; output: deploymentName.
     public required string DeploymentName { get; init; }
 }
 
@@ -42,13 +48,17 @@ public static class AgentRegistration
 
         services.AddSingleton<AIAgent>(sp =>
         {
-            var opts = sp.GetRequiredService<IOptions<AzureOpenAIOptions>>().Value;
+            var opts = sp.GetRequiredService<IOptions<AzureAIFoundryOptions>>().Value;
 
-            var chatClient = new AzureOpenAIClient(
+            // ChatCompletionsClient targets the Azure AI Model Inference API.
+            // Works with any model deployed in the Foundry account — OpenAI GPT,
+            // Microsoft Phi, Meta Llama, etc. — without changing this code.
+            // DefaultAzureCredential uses 'az login' locally and managed identity
+            // in Azure. No API keys stored anywhere.
+            var chatClient = new ChatCompletionsClient(
                     new Uri(opts.Endpoint),
                     new DefaultAzureCredential())
-                .GetChatClient(opts.DeploymentName)
-                .AsIChatClient();
+                .AsChatClient(opts.DeploymentName);
 
             // Pull tool methods from the registered class via reflection.
             var tools = sp.GetRequiredService<WeatherTools>();

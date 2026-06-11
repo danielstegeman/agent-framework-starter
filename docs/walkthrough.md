@@ -60,7 +60,7 @@ mkdir work-item-summariser && cd work-item-summariser
 The bootstrap skill runs:
 - `dotnet new sln -n WorkItemSummariser`
 - Creates `Host`, `WorkItemSummariser`, `WorkItemSummariser.Tools.AzureDevOps`, `Tests`, `Evaluation.Tests`, `AppHost`.
-- Adds packages (`Microsoft.Agents.AI`, `Azure.AI.OpenAI`, `Azure.Identity`, OTel + Azure Monitor exporter, etc.).
+- Adds packages (`Microsoft.Agents.AI`, `Azure.AI.Inference`, `Microsoft.Extensions.AI.AzureAIInference`, `Azure.Identity`, OTel + Azure Monitor exporter, etc.).
 - Writes `Directory.Build.props`, `global.json`, `.editorconfig`, `.gitignore`.
 - Copies the patterns from `references/builder-and-tools.cs`, `instructions-embedded.cs`, `otel-azuremonitor.cs` into the right projects, renaming types.
 - Runs `dotnet build && dotnet test` — both green.
@@ -90,10 +90,35 @@ dotnet add src/WorkItemSummariser.AppHost reference src/WorkItemSummariser.Host
 
 `AppHost/Program.cs` declares the host project. F5 in VS now opens the Aspire dashboard with live OTel traces — including a span per tool call.
 
-### 5. Infrastructure (`agent-infrastructure-overview` -> leaves)
+### 5. Model deployment (`foundry-model-deployment`)
+
+Before provisioning Container Apps, ensure a Foundry model deployment exists. If you already have one, skip to step 6 and record your endpoint and deployment name.
+
+If not, provision the Foundry resource:
+
+```bash
+az deployment group create \
+  --resource-group rg-agent-dev \
+  --template-file infra/azure-ai-foundry.bicep \
+  --parameters \
+      accountName=work-item-summariser-ai \
+      modelPublisher=OpenAI \
+      modelName=gpt-4o \
+      modelVersion=2025-04-14 \
+      capacityTpu=10
+```
+
+Record the outputs for use in the next step and in local `appsettings.Development.json`:
+- `modelsEndpoint` → `AzureAIFoundry__Endpoint`
+- `deploymentName` → `AzureAIFoundry__DeploymentName`
+
+Grant your developer identity (and later the UAMI) `Cognitive Services User` on the Foundry account.
+
+### 6. Infrastructure (`agent-infrastructure-overview` → leaves)
 
 Walk the 10-item checklist. Then:
-- `azure-container-apps-bicep` produces `infra/container-apps.bicep` + `infra/rbac.bicep`.
+- `foundry-model-deployment` was completed in step 5 above — pass its outputs to `azure-container-apps-bicep` as `foundryEndpoint` and `foundryDeploymentName`.
+- `azure-container-apps-bicep` produces `infra/container-apps.bicep` + `infra/rbac.bicep` (include `Cognitive Services User` assignment for the UAMI on the Foundry account).
 - `azure-devops-pipelines-for-agents` produces `azure-pipelines.yml`.
 - `agent-secrets-identity` makes sure the UAMI exists, the federated service connection is wired, and the App Insights connection string is in Key Vault.
 
@@ -106,7 +131,7 @@ git push -u origin main
 
 The pipeline builds, pushes the image, and deploys. The agent is live.
 
-### 6. Evals (`agent-evaluation-strategy`)
+### 7. Evals (`agent-evaluation-strategy`)
 
 You add three case files under `tests/WorkItemSummariser.Evaluation.Tests/Datasets/summarise-basic/`:
 - `case-001.json` — typical work item.
@@ -115,7 +140,7 @@ You add three case files under `tests/WorkItemSummariser.Evaluation.Tests/Datase
 
 `EvalFixture.cs` wires `RelevanceEvaluator` + `CoherenceEvaluator` + a custom `MentionsWorkItemIdEvaluator`. Pipeline gains a `Eval` stage that runs the smoke subset on PR.
 
-### 7. Guardrails (`agent-guardrails-safety`)
+### 8. Guardrails (`agent-guardrails-safety`)
 
 You add `InputRedactionMiddleware` (Microsoft Presidio sidecar in ACA), `PromptInjectionGuardMiddleware` (Azure AI Content Safety Prompt Shields), and an `AuditedAIFunction` wrapper for the tool. Audit events flow to App Insights.
 

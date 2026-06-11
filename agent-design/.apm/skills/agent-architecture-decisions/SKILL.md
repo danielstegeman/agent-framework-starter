@@ -40,6 +40,7 @@ A choice is "backed" if a skill exists to build it. `*` marks a **companion skil
 | Deploy lifecycle | validate → deploy | `azure-validate`*, `azure-deploy`* |
 | Code-execution sandbox | e2b / Daytona / ACI / Container Apps job-per-run | `agent-sandboxing` |
 | Determinism | workflow orchestrator with agent steps | `maf-csharp-implementation` (orchestrator reference) |
+| Model deployment | Azure AI Foundry (AIServices account + project + model) | `foundry-model-deployment` |
 
 Anything not in this table — App Service, Functions, AKS, GitHub Actions, MCP/HTTP tool surface, a non-C# SDK, a self-hosted trace backend — is an **alternative**.
 
@@ -144,6 +145,25 @@ Defer to `agent-guardrails-safety` for implementation. Capture the **policy** de
 
 - **Backed:** `azure-validate`* → `azure-deploy`*, with the build/deploy pipeline on **Azure DevOps** (`azure-devops-pipelines-for-agents`).
 - GitHub Actions or manual deploy are alternatives → run the protocol.
+
+### 11. Model deployment — what model will the agent use?
+
+- **Backed:** **Azure AI Foundry** — an `AIServices`-kind account with a Foundry project and a model deployment (`foundry-model-deployment`). Supports any model in the catalog (OpenAI GPT, Microsoft Phi, Meta Llama, and others) through a single inference endpoint. Default model: `gpt-4o`.
+- **Alternative 1: Use an existing Foundry resource.** If a Foundry account and deployment already exist, record the inference endpoint (`https://<account>.services.ai.azure.com/models`) and deployment name — no Bicep needed. Earn it by providing these values now.
+- **Alternative 2: `OpenAI`-kind AOAI resource.** Loses access to non-OpenAI catalog models and Foundry platform tools → run the protocol.
+
+**Sub-decision — model choice.** Any catalog model is valid on the backed path. Resolve with:
+- What modalities does the agent need (text, vision, code, tool use)?
+- Are there cost or latency constraints that rule out frontier models?
+- Is there a data-residency or approval requirement for the model tier?
+
+The default recommendation is `gpt-4o` (`GlobalStandard`, 10k TPM) — capable, tool-capable, widely available. Non-OpenAI models (e.g. `Phi-4` from Microsoft) require no change to the agent code; only the Bicep parameters differ.
+
+**Order:** Resolve after **#3 Hosting** (sets the region; use the same region to minimise latency and cross-region egress) and before **#9 Identity** (the UAMI needs `Cognitive Services User` on the Foundry account).
+
+**Capture:**
+- Inference endpoint → `AzureAIFoundry__Endpoint`
+- Deployment name → `AzureAIFoundry__DeploymentName`
 
 ## Producing the artifact
 

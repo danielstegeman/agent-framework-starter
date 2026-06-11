@@ -92,8 +92,8 @@ Agent project (MAF + telemetry + Azure auth):
 ```bash
 cd ../<Solution>
 dotnet add package Microsoft.Agents.AI
-dotnet add package Microsoft.Agents.AI.OpenAI
-dotnet add package Azure.AI.OpenAI
+dotnet add package Azure.AI.Inference
+dotnet add package Microsoft.Extensions.AI.AzureAIInference
 dotnet add package Azure.Identity
 dotnet add package Microsoft.Extensions.AI
 dotnet add package Microsoft.Extensions.Options.DataAnnotations
@@ -194,8 +194,8 @@ Console.WriteLine();
 In `src/<Solution>.Host/appsettings.json`:
 ```json
 {
-  "AzureOpenAI": {
-    "Endpoint": "https://<your-aoai>.openai.azure.com/",
+  "AzureAIFoundry": {
+    "Endpoint": "https://<account>.services.ai.azure.com/models",
     "DeploymentName": "gpt-4o"
   },
   "OpenTelemetry": { "ServiceName": "<solution>-agent" }

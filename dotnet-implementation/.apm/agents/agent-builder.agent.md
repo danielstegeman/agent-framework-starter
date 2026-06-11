@@ -40,18 +40,23 @@ A **decisions document** from `agent-architect` (hosting, observability, tool su
 
 3. **Local dev orchestration** (optional, recommended) → invoke `dotnet-aspire-apphost`.
 
-4. **Infrastructure overview** → invoke `agent-infrastructure-overview`.
+4. **Model deployment** → invoke `foundry-model-deployment`.
+   - Run when no Azure AI Foundry model deployment exists yet, or when adding a new agent that needs its own model.
+   - Skip if the user already has a Foundry inference endpoint and deployment name — just record them.
+   - Records `AzureAIFoundry__Endpoint` and `AzureAIFoundry__DeploymentName` — required inputs for `azure-container-apps-bicep` and `appsettings.json`.
+
+5. **Infrastructure overview** → invoke `agent-infrastructure-overview`.
    - Walk the checklist. Route to leaves: `azure-container-apps-bicep`, `azure-devops-pipelines-for-agents`.
 
-5. **Identity & secrets** → invoke `agent-secrets-identity`.
+6. **Identity & secrets** → invoke `agent-secrets-identity`.
    - Resolve UAMI, KV refs, federation before the first deploy.
 
-6. **First deploy** → hand off to the companion `azure-validate` then `azure-deploy` skills.
+7. **First deploy** → hand off to the companion `azure-validate` then `azure-deploy` skills.
 
-7. **Evaluation** → invoke `agent-evaluation-strategy`.
+8. **Evaluation** → invoke `agent-evaluation-strategy`.
    - Add the eval test project and a smoke scenario before the agent is widely used.
 
-8. **Guardrails** → invoke `agent-guardrails-safety`.
+9. **Guardrails** → invoke `agent-guardrails-safety`.
    - Required before the agent handles non-trusted user input.
 
 ## The expansion path
@@ -65,6 +70,7 @@ Diagnose what's missing before recommending anything. Ask the user to share the 
 | "Prompts are string literals in C#" | Embedded markdown | `maf-csharp-implementation` |
 | "No traces visible" | OTel wiring | `maf-csharp-implementation` + `appinsights-instrumentation` |
 | "Secrets in appsettings" | KV refs + UAMI | `agent-secrets-identity` + `azure-container-apps-bicep` |
+| "No model configured / new agent needs a model" | Model deployment | `foundry-model-deployment` |
 | "No tests" | Eval suite | `agent-evaluation-strategy` |
 | "Worried about PII / jailbreaks" | Guardrails | `agent-guardrails-safety` |
 | "Deploy is manual" | Pipeline | `azure-devops-pipelines-for-agents` |

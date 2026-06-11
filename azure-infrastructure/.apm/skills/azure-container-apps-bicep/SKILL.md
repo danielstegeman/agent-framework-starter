@@ -1,6 +1,6 @@
 ---
 name: azure-container-apps-bicep
-description: Author Bicep for hosting a code-first agent on Azure Container Apps — user-assigned managed identity, ACR pull, Key Vault secret references, Azure OpenAI access, OpenTelemetry env vars, ingress, scaling rules, and health probes. Use this skill when the user asks "write the Bicep for my agent on Container Apps", "deploy my agent to ACA with managed identity", "Container Apps Bicep with Key Vault references", "ACA Bicep template for an MAF agent", or any equivalent IaC request targeted at Container Apps for an agent workload.
+description: Author Bicep for hosting a code-first agent on Azure Container Apps — user-assigned managed identity, ACR pull, Key Vault secret references, Azure AI Foundry model access, OpenTelemetry env vars, ingress, scaling rules, and health probes. Use this skill when the user asks "write the Bicep for my agent on Container Apps", "deploy my agent to ACA with managed identity", "Container Apps Bicep with Key Vault references", "ACA Bicep template for an MAF agent", or any equivalent IaC request targeted at Container Apps for an agent workload.
 ---
 
 # Azure Container Apps — Bicep for Agents
@@ -18,7 +18,7 @@ Bicep module that deploys a single Container App for a code-first agent. Referen
 `infra/container-apps.bicep` — a deployable Bicep file that depends on:
 - An existing **Container Apps environment** (created separately; usually shared across apps).
 - An existing **Key Vault** (with the App Insights connection string already in it).
-- An existing **Azure OpenAI resource** with a deployment.
+- An existing **Azure AI Foundry account** with a model deployment — run `foundry-model-deployment` first if not yet provisioned.
 - An existing **ACR** with the image already pushed (the pipeline handles this).
 
 It creates:
@@ -36,14 +36,14 @@ It does **not** create RBAC role assignments — those should live in a separate
 | `image` | Fully-qualified: `<acr>.azurecr.io/<repo>:<tag>`. Bicep derives the registry server with `split(image, '/')[0]`. |
 | `keyVaultName` | Existing KV in the same RG. |
 | `appInsightsConnectionStringSecretName` | Secret name in KV (default `appinsights-connection-string`). |
-| `azureOpenAiEndpoint`, `azureOpenAiDeploymentName` | Passed as env vars to the agent. |
+| `foundryEndpoint`, `foundryDeploymentName` | Passed as env vars to the agent. Values come from `foundry-model-deployment` outputs. |
 
 ## Required RBAC (deploy separately)
 
 The UAMI needs:
 - `AcrPull` on the registry resource.
 - `Key Vault Secrets User` on the Key Vault.
-- `Cognitive Services OpenAI User` on the Azure OpenAI resource.
+- `Cognitive Services User` on the Azure AI Foundry account.
 
 Put these in `infra/rbac.bicep` and deploy with elevated permissions (one-time). The deploy pipeline only needs `Container Apps Contributor` on the RG.
 

@@ -101,7 +101,7 @@ Every project exposes one public `AddXxx(IServiceCollection, IConfiguration)` ex
 public static IServiceCollection AddWeatherAgent(
     this IServiceCollection services, IConfiguration config)
 {
-    services.Configure<AzureOpenAIOptions>(config.GetSection("AzureOpenAI"));
+    services.Configure<AzureAIFoundryOptions>(config.GetSection("AzureAIFoundry"));
     services.AddScoped<WeatherTools>();
     services.AddSingleton<AIAgent>(sp => BuildAgent(sp));
     return services;
