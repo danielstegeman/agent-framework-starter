@@ -1,15 +1,19 @@
 name: code-first-agent-starter
-version: 0.1.0
+version: 0.2.0
 description: >-
-  Skills and an orchestrator agent for building a code-first AI agent end-to-end —
-  architecture decisions (language-neutral), C# / Microsoft Agent Framework
-  implementation patterns, Azure infrastructure (Container Apps, Bicep, ADO
-  pipelines, Aspire AppHost), bootstrapping, evaluation, guardrails, and identity.
+  Curated aggregator for building a code-first AI agent end-to-end. Composes four
+  focused sub-packages — agent-design (architecture decisions, sandboxing, the
+  architect agent), dotnet-implementation (MAF scaffolding, patterns, Aspire, the
+  builder agent), azure-infrastructure (Container Apps, Bicep, ADO pipelines,
+  identity), and quality-safety (evaluation, guardrails).
 author: code-first-agent-starter
+# Curated aggregator: each sub-package is independently installable and owns its
+# own apm.yml + .apm/ tree. Installing this root pulls all four.
 dependencies:
-  apm: []
+  apm:
+    - ./agent-design
+    - ./dotnet-implementation
+    - ./azure-infrastructure
+    - ./quality-safety
   mcp: []
-# `includes: auto` makes `apm install` walk the local .apm/ tree and deploy
-# everything it finds. Switch to an explicit list to gate what ships.
-includes: auto
 scripts: {}

@@ -1,6 +1,16 @@
 # Walkthrough: From zero to a deployed code-first agent
 
-A worked example of using the `code-first-agent` orchestrator on a fresh project. Skill names in backticks are the leaves the orchestrator delegates to.
+A worked example using the two agents in this starter: **`agent-architect`** (decides and documents) and **`agent-builder`** (implements). Skill names in backticks are the leaves each agent delegates to.
+
+## Prerequisites
+
+Before you start, install the **Azure VS Code extensions** — the architect recommends several implementation-backed options that depend on the companion skills these extensions ship:
+
+- **Azure Tools** extension pack (or at minimum **Azure Resources**, **Container Apps**, **Bicep**).
+- **Azure Developer CLI (azd)** support.
+- **GitHub Copilot for Azure** (surfaces `azure-prepare` / `azure-validate` / `azure-deploy` / `azure-rbac` / `appinsights-instrumentation` / `entra-app-registration`).
+
+Without these, some recommended options downgrade to "alternatives" and the architect will grill you on them instead of recommending them.
 
 ## Setup
 
@@ -10,32 +20,37 @@ Install the [APM CLI](https://microsoft.github.io/apm/), then in any project whe
 apm install <owner>/code-first-agent-starter
 ```
 
-Open a fresh Copilot Chat or Claude conversation in that workspace.
+This curated aggregator pulls all four sub-packages (`agent-design`, `dotnet-implementation`, `azure-infrastructure`, `quality-safety`) — both agents and all skills. Open a fresh Copilot Chat or Claude conversation in that workspace.
 
 ## The journey
 
-**You:** *"Help me build a code-first agent that summarises Azure DevOps work items."*
+**You:** *"Help me design a code-first agent that summarises Azure DevOps work items."*
 
-The orchestrator picks up the request and asks two questions:
+The **`agent-architect`** picks up the request, confirms the Azure extensions are installed, then asks:
 > Greenfield or expansion? Where would you like to start?
 
-**You:** *"Greenfield. Walk me through all of it."*
+**You:** *"Greenfield. Walk me through the decisions."*
 
-### 1. Decisions (`agent-architecture-decisions`)
+### 1. Decisions (`agent-architecture-decisions`, driven by `agent-architect`)
 
-The orchestrator invokes the decisions skill. You're walked through:
+The architect proposes only **implementation-backed** options and grills you on any alternative. You're walked through:
 - **Trigger model**: webhook from ADO on work-item update + a CLI for testing.
 - **Observability**: OTel -> App Insights (prod), Aspire dashboard (local).
-- **Hosting**: Azure Container Apps, public ingress.
-- **Tools**: in-process tools class talking to ADO REST API.
+- **Hosting**: Azure Container Apps, public ingress (backed default — accepted).
+- **Tools**: in-process tools class talking to ADO REST API (backed default).
 - **Context sources**: tool-fetched only — no RAG.
+- **Sandbox**: the agent runs no model-generated code — recorded as "no execution".
 - **Flexibility vs determinism**: single agent, one tool call per run, no orchestrator.
 - **Guardrails**: PII redaction on the work-item body before it hits the model.
 - **Identity**: UAMI for the workload, federated MI for the ADO pipeline.
 
-Output: `docs/adr/0001-..0008-*.md` capturing each decision.
+Output: `docs/adr/0001-..0010-*.md` capturing each decision (chosen option, backed-or-alternative, rationale, revisit trigger).
 
-### 2. Scaffold (`dotnet-agent-bootstrap`)
+### Hand-off to the builder
+
+The architect confirms shared understanding and **hands off to `agent-builder`** with the decisions document as input. From here the builder owns the conversation.
+
+### 2. Scaffold (`dotnet-agent-bootstrap`, driven by `agent-builder`)
 
 ```bash
 cd ~/work

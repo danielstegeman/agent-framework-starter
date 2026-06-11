@@ -1,0 +1,13 @@
+name: azure-infrastructure
+version: 0.2.0
+description: >-
+  Infrastructure-phase skills for hosting a code-first AI agent on Azure — an
+  infrastructure overview that routes to leaves, Azure Container Apps Bicep,
+  Azure DevOps build/deploy pipelines, and identity / secrets (managed identity,
+  Key Vault, OBO, workload identity federation).
+author: code-first-agent-starter
+includes: auto
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}

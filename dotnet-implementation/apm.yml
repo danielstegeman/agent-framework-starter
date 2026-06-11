@@ -1,0 +1,12 @@
+name: dotnet-implementation
+version: 0.2.0
+description: >-
+  Implementation-phase skills and the builder agent for a code-first AI agent in
+  C# / Microsoft Agent Framework — bootstrapping a solution, MAF implementation
+  patterns, and a .NET Aspire AppHost for local F5 development.
+author: code-first-agent-starter
+includes: auto
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}

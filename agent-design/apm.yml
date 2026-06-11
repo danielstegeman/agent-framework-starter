@@ -1,0 +1,13 @@
+name: agent-design
+version: 0.2.0
+description: >-
+  Design-phase skills and the architect agent for a code-first AI agent —
+  language-neutral architecture decisions and code-execution sandboxing. The
+  architect produces documentation and hands off to the builder; it does not
+  write code.
+author: code-first-agent-starter
+includes: auto
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}

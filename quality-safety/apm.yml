@@ -1,0 +1,13 @@
+name: quality-safety
+version: 0.2.0
+description: >-
+  Quality and safety skills for a code-first AI agent — an evaluation strategy
+  built on Microsoft.Extensions.AI.Evaluation, and input / output / tool-call
+  guardrails (PII redaction, prompt-injection defence, content filtering, audit
+  logging).
+author: code-first-agent-starter
+includes: auto
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}
