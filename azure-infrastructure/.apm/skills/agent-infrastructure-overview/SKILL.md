@@ -113,12 +113,21 @@ Default: public ingress, TLS terminated at Container Apps. If the agent is inter
 - Private endpoints to Azure OpenAI, Key Vault, ACR.
 - Allow-list egress if the agent is restricted to specific external services.
 
+### 11. Code-execution sandbox (only if the agent runs model-generated code)
+
+**Skip this unless the agent executes model-generated code or commands** (see `agent-sandboxing` for the "is a sandbox required?" gate — typed-tool-only agents don't need one). When required, the sandbox is a **separate runtime** from the host: an Azure Container Apps **dynamic-sessions pool** of Hyper-V-isolated, custom-container sessions that the host allocates per conversation.
+
+- The host's UAMI needs the `Azure ContainerApps Session Executor` role on the pool; the session itself stays credential-less (no managed identity). -> `agent-secrets-identity`.
+- The session image is built and pushed to ACR before the pool is created (two-phase deploy). -> `agent-sandbox-csharp` for the image + C# client.
+- The pool resource, scaling (`maxConcurrentSessions` / `readySessionInstances` / `cooldownPeriod`), and egress isolation. -> `azure-container-apps-sessions-bicep`.
+
 ## Hand-off
 
 Once the checklist is walked:
 - HTTP agent on Azure -> `azure-container-apps-bicep` for IaC, `azure-devops-pipelines-for-agents` for CI/CD.
 - Local first -> `dotnet-aspire-apphost`.
 - Auth detail -> `agent-secrets-identity`, `azure-rbac`.
+- Code-execution sandbox -> `azure-container-apps-sessions-bicep` (IaC) + `agent-sandbox-csharp` (C#).
 - Functions / App Service / generic Azure deploy -> `azure-prepare`.
 
 Do not produce Bicep or YAML in this skill — that's the leaves' job.

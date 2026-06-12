@@ -97,10 +97,21 @@ Separate `rbac.bicep` deployed once per environment by a privileged identity (a 
 | Workload UAMI | Azure OpenAI | `Cognitive Services OpenAI User` |
 | Workload UAMI | Key Vault | `Key Vault Secrets User` |
 | Workload UAMI | ACR | `AcrPull` |
+| Workload UAMI | Dynamic-sessions pool (if the agent runs model-generated code) | `Azure ContainerApps Session Executor` |
 | Deployer SP | RG | `Contributor` |
 | Deployer SP | ACR | `AcrPush` |
 
 After bootstrap, the deploy pipeline never touches RBAC. Hand off to `azure-rbac` to pick the right role per tool the agent uses.
+
+## Code-execution sandbox identity (if the agent runs model-generated code)
+
+When the agent executes model-generated code in an Azure Container Apps dynamic-sessions pool (see `agent-sandboxing`, `azure-container-apps-sessions-bicep`), the identity split is:
+
+- **The host's workload UAMI** holds `Azure ContainerApps Session Executor` on the pool and calls the management API with a `DefaultAzureCredential` token whose audience is `https://dynamicsessions.io`. Only the host talks to the pool.
+- **The session is credential-less.** Do **not** enable a managed identity *inside* the session — that would hand cloud credentials to attacker-controllable, model-generated code. The pool's own identity is used solely to pull the session image from ACR (`AcrPull`), never injected into the running session.
+
+This keeps the blast radius of a prompt-injection-driven code path to the sandbox itself.
+
 
 ## Local dev
 
@@ -130,4 +141,5 @@ After bootstrap, the deploy pipeline never touches RBAC. Hand off to `azure-rbac
 - Pipeline service connection with WIF -> `azure-devops-pipelines-for-agents`.
 - App registration for OBO -> `entra-app-registration`.
 - Picking specific RBAC roles -> `azure-rbac`.
+- Dynamic-sessions pool + the Session Executor role assignment -> `azure-container-apps-sessions-bicep`.
 - Auditing what the identity actually does -> `agent-guardrails-safety`.
