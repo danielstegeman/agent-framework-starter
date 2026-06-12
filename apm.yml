@@ -11,9 +11,9 @@ author: code-first-agent-starter
 # own apm.yml + .apm/ tree. Installing this root pulls all four.
 dependencies:
   apm:
-    - danielstegeman/.apm/agent-design
-    - danielstegeman/.apm/dotnet-implementation
-    - danielstegeman/.apm/azure-infrastructure
-    - danielstegeman/.apm/quality-safety
+    - danielstegeman/agent-design
+    - danielstegeman/dotnet-implementation
+    - danielstegeman/azure-infrastructure
+    - danielstegeman/quality-safety
   mcp: []
 scripts: {}
