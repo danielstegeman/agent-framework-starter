@@ -1,19 +1,29 @@
 // references/builder-and-tools.cs
 //
-// Minimal example of wiring Microsoft Agent Framework directly using
-// IServiceCollection. Demonstrates:
-//   1. Tool discovery via public methods decorated with [Description].
-//   2. Registering the tool class in DI so it can be resolved per-scope.
-//   3. Building a ChatClientAgent backed by the Azure AI Foundry model inference API.
-//   4. No custom wrapper around AIAgent. Use the SDK directly.
+// Canonical vertical-slice wiring for Microsoft Agent Framework.
+//
+// FILE LOCATION: src/<Solution>/Agents/WeatherAgent/WeatherAgentExtensions.cs
+//
+// Demonstrates:
+//   1. Slice-level DI extension — one per agent, lives inside Agents/<AgentName>/.
+//   2. Tool discovery via public methods decorated with [Description].
+//   3. Correct MAF 1.10+ ChatClientAgent constructor (instructions + name + tools
+//      are constructor parameters, not ChatClientAgentOptions properties).
+//   4. Project-level composer that calls each slice — host wiring never changes.
 
 using System.ComponentModel;
 using Azure.AI.Inference;
 using Azure.Identity;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+
+// ---------------------------------------------------------------------------
+// Tool class — lives in the separate <Solution>.Tools.<Provider> project.
+// Shown here for completeness; the agent project takes a project reference.
+// ---------------------------------------------------------------------------
 
 public sealed class WeatherTools
 {
@@ -22,29 +32,50 @@ public sealed class WeatherTools
         [Description("City name, e.g. 'Amsterdam'.")] string city,
         CancellationToken ct = default)
     {
-        // Real implementation would call an API. Keep tool methods thin —
+        // Real implementation calls an API. Keep tool methods thin —
         // they're the boundary to the outside world, not business logic.
         return Task.FromResult(18.5);
     }
 }
 
+// ---------------------------------------------------------------------------
+// Options — one class per external dependency, bound per slice.
+// ---------------------------------------------------------------------------
+
+[System.ComponentModel.DataAnnotations.Required]
 public sealed class AzureAIFoundryOptions
 {
     // Azure AI Model Inference API endpoint.
     // Format: https://<account>.services.ai.azure.com/models
     // Provision via foundry-model-deployment; output: modelsEndpoint.
+    [System.ComponentModel.DataAnnotations.Required]
     public required string Endpoint { get; init; }
 
     // Name of the model deployment in the Foundry account (e.g. "gpt-4o").
     // Provision via foundry-model-deployment; output: deploymentName.
+    [System.ComponentModel.DataAnnotations.Required]
     public required string DeploymentName { get; init; }
 }
 
-public static class AgentRegistration
+// ---------------------------------------------------------------------------
+// SLICE-LEVEL extension
+// FILE: src/<Solution>/Agents/WeatherAgent/WeatherAgentExtensions.cs
+//
+// Registers everything this one agent needs. The host never calls this
+// directly — the project-level composer does.
+// ---------------------------------------------------------------------------
+
+public static class WeatherAgentExtensions
 {
-    public static IServiceCollection AddWeatherAgent(this IServiceCollection services)
+    public static IServiceCollection AddWeatherAgent(
+        this IServiceCollection services, IConfiguration config)
     {
-        services.AddScoped<WeatherTools>();
+        services.AddOptions<AzureAIFoundryOptions>()
+            .Bind(config.GetSection("AzureAIFoundry"))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddSingleton<WeatherTools>();
 
         services.AddSingleton<AIAgent>(sp =>
         {
@@ -69,16 +100,39 @@ public static class AgentRegistration
                 .Cast<AITool>()
                 .ToList();
 
-            var options = new ChatClientAgentOptions
-            {
-                Name = "weather-agent",
-                Instructions = "You are a concise weather assistant.",
-                Tools = aiTools,
-            };
+            var instructions = InstructionsLoader.LoadFromResource<AssemblyMarker>(
+                "Agents.WeatherAgent.Instructions.WeatherAgent.md");
 
-            return new ChatClientAgent(chatClient, options);
+            // MAF 1.10+: instructions, name, and tools are constructor parameters.
+            // There is no ChatClientAgentOptions.Instructions or .Tools property.
+            return new ChatClientAgent(
+                chatClient,
+                instructions: instructions,
+                name: "weather-agent",
+                tools: aiTools);
         });
 
+        return services;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PROJECT-LEVEL COMPOSER
+// FILE: src/<Solution>/ServiceCollectionExtensions.cs
+//
+// The host calls this single method. It composes slices. Adding a new agent
+// = adding one line here and a new Agents/<NewAgent>/ folder. Nothing else
+// in the host changes.
+// ---------------------------------------------------------------------------
+
+public static class AgentProjectExtensions
+{
+    public static IServiceCollection AddWeatherAgentProject(
+        this IServiceCollection services, IConfiguration config)
+    {
+        services.AddAgentTelemetry(config);
+        services.AddWeatherAgent(config);           // Agents/WeatherAgent/
+        // services.AddForecastAgent(config);       // Agents/ForecastAgent/ — add here when needed
         return services;
     }
 }

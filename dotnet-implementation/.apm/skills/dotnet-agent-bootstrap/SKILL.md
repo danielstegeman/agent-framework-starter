@@ -35,9 +35,15 @@ If the user is unsure, suggest defaults and proceed. Don't block on questions.
 ├── src/
 │   ├── <Solution>.Host/
 │   ├── <Solution>/
-│   │   ├── Instructions/
-│   │   │   └── MainAgent.md
-│   │   └── AssemblyMarker.cs
+│   │   ├── ServiceCollectionExtensions.cs  # project-level composer
+│   │   ├── InstructionsLoader.cs
+│   │   ├── TelemetryRegistration.cs
+│   │   ├── AssemblyMarker.cs
+│   │   └── Agents/
+│   │       └── <FirstAgent>/               # vertical slice — one per agent
+│   │           ├── <FirstAgent>Extensions.cs  # slice DI wiring
+│   │           └── Instructions/
+│   │               └── <FirstAgent>.md     # EmbeddedResource
 │   ├── <Solution>.Tools.<Integration>/
 │   └── <Solution>.AppHost/                 # if Aspire chosen
 └── tests/
@@ -142,18 +148,56 @@ dotnet add package Microsoft.Extensions.AI.Evaluation.Reporting
 
 **`.gitignore`** — `dotnet new gitignore`.
 
-### 5. Embedded instructions
+### 5. Embedded instructions + first agent slice
 
 In `src/<Solution>/<Solution>.csproj` add:
 ```xml
 <ItemGroup>
-  <EmbeddedResource Include="Instructions\**\*.md" />
+  <EmbeddedResource Include="Agents\**\*.md" />
 </ItemGroup>
 ```
 
-Create `src/<Solution>/Instructions/MainAgent.md` with a starter persona prompt:
+Create the first agent's slice folder:
+```
+src/<Solution>/Agents/<FirstAgent>/Instructions/<FirstAgent>.md
+src/<Solution>/Agents/<FirstAgent>/<FirstAgent>Extensions.cs
+```
+
+`Agents/<FirstAgent>/Instructions/<FirstAgent>.md` — starter persona prompt:
 ```markdown
 You are a helpful assistant. Be concise. Cite the tool you used when you used one.
+```
+
+`Agents/<FirstAgent>/<FirstAgent>Extensions.cs` — starter slice DI extension:
+```csharp
+namespace <Solution>.Agents.<FirstAgent>;
+
+public static class <FirstAgent>Extensions
+{
+    public static IServiceCollection Add<FirstAgent>(
+        this IServiceCollection services, IConfiguration config)
+    {
+        // Options, tools, and AIAgent registered here.
+        // See maf-csharp-implementation/references/builder-and-tools.cs.
+        return services;
+    }
+}
+```
+
+Create `src/<Solution>/ServiceCollectionExtensions.cs` — project-level composer:
+```csharp
+namespace <Solution>;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection Add<Solution>Agent(
+        this IServiceCollection services, IConfiguration config)
+    {
+        services.AddAgentTelemetry(config);
+        services.Add<FirstAgent>(config);   // Agents/<FirstAgent>/<FirstAgent>Extensions.cs
+        return services;
+    }
+}
 ```
 
 Create `src/<Solution>/AssemblyMarker.cs`:
@@ -165,7 +209,7 @@ public sealed class AssemblyMarker { }
 ### 6. Sample wiring
 
 Copy the patterns from these reference files into the new projects, renaming types:
-- [builder-and-tools.cs](../maf-csharp-implementation/references/builder-and-tools.cs) -> `src/<Solution>/ServiceCollectionExtensions.cs` + a starter tool class in `src/<Solution>.Tools.<Integration>/`
+- [builder-and-tools.cs](../maf-csharp-implementation/references/builder-and-tools.cs) -> `src/<Solution>/Agents/<FirstAgent>/<FirstAgent>Extensions.cs` (slice-level wiring) + `src/<Solution>/ServiceCollectionExtensions.cs` (composer) + a starter tool class in `src/<Solution>.Tools.<Integration>/`
 - [instructions-embedded.cs](../maf-csharp-implementation/references/instructions-embedded.cs) -> `src/<Solution>/InstructionsLoader.cs`
 - [otel-azuremonitor.cs](../maf-csharp-implementation/references/otel-azuremonitor.cs) -> `src/<Solution>/TelemetryRegistration.cs`
 
@@ -178,16 +222,18 @@ using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Configuration.AddUserSecrets<Program>(optional: true);
-builder.Services.AddAgentTelemetry(builder.Configuration);
+
+// Host calls the project-level composer only.
+// Individual agent slices are wired inside the agent project.
 builder.Services.Add<Solution>Agent(builder.Configuration);
 
 using var host = builder.Build();
 var agent = host.Services.GetRequiredService<AIAgent>();
 
 var prompt = args.Length > 0 ? string.Join(' ', args) : "Hello!";
-var thread = await agent.GetNewThreadAsync();
-await foreach (var chunk in agent.RunStreamingAsync(prompt, thread))
-    Console.Write(chunk.Text);
+var session = await agent.CreateSessionAsync();
+await foreach (var update in agent.RunStreamingAsync(prompt, session))
+    Console.Write(update.Text);
 Console.WriteLine();
 ```
 
@@ -228,6 +274,8 @@ Do **not** push to a remote — that's the user's call.
 - If `dotnet new aspire-apphost` fails, the user is missing the workload: prompt them to run `dotnet workload install aspire` and continue.
 - Don't add packages "just in case." Each one above is justified. If the user wants more (Brighter for orchestration, etc.), invoke `nuget-dependency-management` and add it deliberately.
 - Don't author code beyond the references — that's the implementation skill's job. This skill leaves a working "Hello!" agent.
+- **One slice per agent.** When a second agent is requested, mirror the first slice (`Agents/<NewAgent>/`) and add one call in the project-level composer. Do not introduce a shared base class or factory until two slices share real abstractions.
+- **EmbeddedResource glob is `Agents\**\*.md`.** New slice instruction files are picked up automatically; no csproj edit needed when adding an agent.
 
 ## Hand-off
 

@@ -26,11 +26,17 @@ Promote a wrapper or base class **only when two or more agents in production sha
 │   ├── <Agent>.Host/              # console / web / function entrypoint
 │   │   ├── Program.cs
 │   │   └── appsettings.json
-│   ├── <Agent>/                   # agent build-up + orchestration
-│   │   ├── ServiceCollectionExtensions.cs
-│   │   ├── Instructions/          # *.md (EmbeddedResource)
-│   │   ├── Orchestrators/         # CQRS handlers, if you have a workflow
-│   │   └── AssemblyMarker.cs
+│   ├── <Agent>/                   # agent classlib — one subfolder per agent inside
+│   │   ├── ServiceCollectionExtensions.cs   # project-level composer
+│   │   ├── InstructionsLoader.cs
+│   │   ├── TelemetryRegistration.cs
+│   │   ├── AssemblyMarker.cs
+│   │   └── Agents/
+│   │       └── <AgentName>/       # vertical slice — one per agent
+│   │           ├── <AgentName>Extensions.cs  # slice DI wiring
+│   │           ├── Instructions/
+│   │           │   └── <AgentName>.md        # EmbeddedResource
+│   │           └── Orchestrator.cs           # optional: only if deterministic workflow
 │   └── <Agent>.Tools.<Provider>/  # one tools project per external system
 │       ├── ServiceCollectionExtensions.cs
 │       ├── Configuration/
@@ -44,8 +50,42 @@ Rules:
 - **Host is throwaway.** It wires DI, parses input, calls the agent, prints output. No business logic.
 - **Tools live in their own project per integration.** They have no reference to the agent project. The agent depends on tools, not the reverse.
 - **One assembly marker per project that owns embedded resources.** It anchors `LoadFromResource<TMarker>(...)` lookups.
+- **One folder per agent.** Everything an agent needs — instructions, DI wiring, optional orchestrator — lives inside `Agents/<AgentName>/`. Adding a new agent means adding one folder and one line in the project-level composer.
 
 See [references/builder-and-tools.cs](references/builder-and-tools.cs) for the canonical wiring.
+
+## Vertical slice per agent
+
+Each agent is a self-contained vertical slice inside `Agents/<AgentName>/`:
+
+| File | Responsibility |
+|---|---|
+| `<AgentName>Extensions.cs` | DI wiring for this agent: options, tools, `AIAgent` singleton |
+| `Instructions/<AgentName>.md` | Agent persona prompt (EmbeddedResource) |
+| `Orchestrator.cs` | CQRS handler (Brighter/MediatR) — add only when the workflow is deterministic |
+
+The project-level `ServiceCollectionExtensions.cs` is the **composer** — it does nothing except call each slice's extension and telemetry:
+
+```csharp
+// <Agent>/ServiceCollectionExtensions.cs
+public static IServiceCollection AddWeatherAgentProject(
+    this IServiceCollection services, IConfiguration config)
+{
+    services.AddAgentTelemetry(config);
+    services.AddWeatherAgent(config);       // Agents/WeatherAgent/WeatherAgentExtensions.cs
+    // services.AddForecastAgent(config);   // add more slices here as the product grows
+    return services;
+}
+```
+
+**Adding an agent** checklist:
+1. Create `Agents/<NewAgent>/` folder.
+2. Add `<NewAgent>Extensions.cs` (copy the existing slice, rename types).
+3. Add `Instructions/<NewAgent>.md` with the persona prompt.
+4. Register in the project-level composer: `services.Add<NewAgent>(config)`.
+5. That's it — host wiring is untouched.
+
+Do **not** introduce a shared base class or `AgentFactory` until two slices genuinely share the same abstractions and you can name them.
 
 ## Tool authoring
 
@@ -75,13 +115,13 @@ Agent prompts belong in `.md` files, not C# string literals. Mark them as `<Embe
 
 ```xml
 <ItemGroup>
-  <EmbeddedResource Include="Instructions\**\*.md" />
+  <EmbeddedResource Include="Agents\**\*.md" />
 </ItemGroup>
 ```
 
 ```csharp
 var instructions = InstructionsLoader.LoadFromResource<AssemblyMarker>(
-    "Instructions.PlanningAgent.md");
+    "Agents.WeatherAgent.Instructions.WeatherAgent.md");
 ```
 
 See [references/instructions-embedded.cs](references/instructions-embedded.cs).
@@ -94,24 +134,42 @@ Rules:
 
 ## DI wiring — the ServiceCollection extension pattern
 
-Every project exposes one public `AddXxx(IServiceCollection, IConfiguration)` extension. The host composes them.
+Two levels of extensions cooperate:
+
+**Slice-level** — lives in `Agents/<AgentName>/<AgentName>Extensions.cs`. Wires exactly one agent:
 
 ```csharp
-// In <Agent>/ServiceCollectionExtensions.cs
+// Agents/WeatherAgent/WeatherAgentExtensions.cs
 public static IServiceCollection AddWeatherAgent(
     this IServiceCollection services, IConfiguration config)
 {
-    services.Configure<AzureAIFoundryOptions>(config.GetSection("AzureAIFoundry"));
-    services.AddScoped<WeatherTools>();
-    services.AddSingleton<AIAgent>(sp => BuildAgent(sp));
+    services.AddOptions<AzureAIFoundryOptions>()
+        .Bind(config.GetSection("AzureAIFoundry"))
+        .ValidateDataAnnotations()
+        .ValidateOnStart();
+    services.AddSingleton<WeatherTools>();
+    services.AddSingleton<AIAgent>(sp => BuildWeatherAgent(sp));
+    return services;
+}
+```
+
+**Project-level composer** — lives in `<Agent>/ServiceCollectionExtensions.cs`. Calls each slice and telemetry:
+
+```csharp
+// <Agent>/ServiceCollectionExtensions.cs
+public static IServiceCollection AddWeatherAgentProject(
+    this IServiceCollection services, IConfiguration config)
+{
+    services.AddAgentTelemetry(config);
+    services.AddWeatherAgent(config);
     return services;
 }
 ```
 
 Rules:
-- One `AddXxx` per project. Host calls each in order.
-- Options bound by `IConfiguration.GetSection(...)`. Add `DataAnnotations` validation:
-  `services.AddOptions<AzureOpenAIOptions>().Bind(...).ValidateDataAnnotations().ValidateOnStart();`
+- Each slice owns its own options binding, tools registration, and `AIAgent` singleton.
+- The composer adds no logic — it is a call list.
+- Options bound with `ValidateDataAnnotations().ValidateOnStart()` so misconfiguration surfaces at startup.
 - Authentication via `DefaultAzureCredential` for all Azure SDK clients (works locally with `az login`, in Azure with managed identity).
 - Agents registered as `Singleton` (chat client + options are immutable); tools as `Scoped` if they hold per-request state, otherwise `Singleton`.
 
@@ -168,3 +226,4 @@ Define `MyDto` as a record with `[Description]` on every property. The framework
 - Eval tests -> `agent-evaluation-strategy`.
 - Guardrail middleware implementations -> `agent-guardrails-safety`.
 - Auth & secrets -> `agent-secrets-identity`.
+- Running model-generated code/commands in an isolated sandbox -> `agent-sandbox-csharp` (the `ISandbox` abstraction, dynamic-sessions + local Docker implementations, and `run_command` / `read_file` / `write_file` / `git` tools).
