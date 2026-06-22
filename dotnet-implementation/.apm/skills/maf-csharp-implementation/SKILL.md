@@ -161,6 +161,42 @@ var result = await agent.RunAsync<MyDto>("Summarise the work item as JSON.");
 
 Define `MyDto` as a record with `[Description]` on every property. The framework infers the schema and instructs the model accordingly. Validate after deserialisation; the schema isn't a contract.
 
+## Observability
+
+Three levels of spans should appear in every agent trace:
+
+```
+orchestrator.run
+  orchestrator.gather-context
+  orchestrator.plan
+    gen_ai.chat               ← emitted by UseOpenTelemetry()
+      execute_tool            ← emitted by UseOpenTelemetry()
+  orchestrator.implement  [attempt=N]
+    gen_ai.chat               ← emitted by UseOpenTelemetry()
+      execute_tool            ← emitted by UseOpenTelemetry()
+```
+
+**Rule: call `.UseOpenTelemetry()` on every IChatClient builder.** Without it, no LLM spans, no token counts, and no tool-call hierarchy are emitted — regardless of what activity sources are registered in `AddAgentTelemetry`. See [references/builder-and-tools.cs](references/builder-and-tools.cs).
+
+```csharp
+var chatClient = new ChatCompletionsClient(endpoint, credential)
+    .AsChatClient(deploymentName)
+    .AsBuilder()
+    .UseOpenTelemetry(configure: o => o.EnableSensitiveData = <true|false>)
+    .Use(inner => new OpaqueClientWrapper(inner))   // MUST be last — see below
+    .Build();
+```
+
+> **MAF middleware-bypass fix — required.** `ChatClientAgent` (MAF) calls `GetService<ChatCompletionsClient>()` on the `IChatClient` it receives. Because `DelegatingChatClient.GetService` tunnels unknown types straight through to the inner client, this extracts the raw Azure AI Inference client and calls it directly — skipping `OpenTelemetryChatClient` entirely. `OpaqueClientWrapper` intercepts `GetService<ChatCompletionsClient>()` and returns `null`, forcing MAF to fall back to the standard `IChatClient` interface (which does go through the middleware). Add it as the **last** (outermost) middleware. See `OpaqueClientWrapper` in [references/builder-and-tools.cs](references/builder-and-tools.cs).
+
+`EnableSensitiveData = true` captures full prompt and completion text as span events (`gen_ai.prompt` / `gen_ai.completion`). This is an **architectural decision** about the data your agent processes — not a dev/prod environment toggle:
+- Agent workflow data is developer-accessible (code, logs, diffs, tool outputs) → `true`
+- Agent workflow data contains user PII or confidential business content → `false`
+
+**Rule: create orchestration phase spans from your own `ActivitySource`.** Register it in `TelemetryRegistration` and start a span at the beginning of each deterministic workflow step. The `gen_ai.chat` spans emitted by `UseOpenTelemetry()` automatically become children via `Activity.Current`. See [references/orchestrator-spans.cs](references/orchestrator-spans.cs) for the full pattern including error recording and iteration tags.
+
+`WithMetrics()` in your telemetry setup subscribes to `gen_ai.client.token.usage` (counter) and `gen_ai.client.operation.duration` (histogram) — both emitted by MEAi when `UseOpenTelemetry()` is active. See [references/otel-azuremonitor.cs](references/otel-azuremonitor.cs).
+
 ## What this skill does NOT cover
 
 - Project scaffolding commands -> `dotnet-agent-bootstrap`.
