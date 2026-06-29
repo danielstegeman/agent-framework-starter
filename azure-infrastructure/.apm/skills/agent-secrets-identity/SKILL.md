@@ -131,3 +131,17 @@ After bootstrap, the deploy pipeline never touches RBAC. Hand off to `azure-rbac
 - App registration for OBO -> `entra-app-registration`.
 - Picking specific RBAC roles -> `azure-rbac`.
 - Auditing what the identity actually does -> `agent-guardrails-safety`.
+
+## Official Documentation
+
+**Azure Identity & Managed Identity**
+- [DefaultAzureCredential / credential chains](https://learn.microsoft.com/en-us/dotnet/azure/sdk/authentication/credential-chains?tabs=dac)
+- [User-assigned managed identities](https://learn.microsoft.com/en-us/entra/identity/managed-identities-azure-resources/how-manage-user-assigned-managed-identities)
+- [Azure Identity client library for .NET](https://learn.microsoft.com/en-us/dotnet/api/overview/azure/identity-readme)
+
+**Authentication flows**
+- [On-Behalf-Of flow](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-on-behalf-of-flow)
+- [Workload identity federation](https://learn.microsoft.com/en-us/entra/workload-id/workload-identity-federation)
+
+**Secrets management**
+- [Azure Container Apps secret management (Key Vault references)](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets)

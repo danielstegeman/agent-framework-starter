@@ -204,3 +204,15 @@ var chatClient = new ChatCompletionsClient(endpoint, credential)
 - Eval tests -> `agent-evaluation-strategy`.
 - Guardrail middleware implementations -> `agent-guardrails-safety`.
 - Auth & secrets -> `agent-secrets-identity`.
+
+## Official Documentation
+
+**Microsoft Agent Framework & Extensions.AI**
+- [Microsoft Agents SDK (GitHub)](https://github.com/microsoft/agents)
+- [Microsoft.Extensions.AI overview](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)
+- [IChatClient interface](https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.ai.ichatclient)
+- [Azure AI Inference client library for .NET](https://learn.microsoft.com/en-us/dotnet/api/overview/azure/ai.inference-readme)
+
+**OpenTelemetry & Azure Monitor**
+- [OpenTelemetry for .NET](https://opentelemetry.io/docs/languages/net/)
+- [Azure Monitor OpenTelemetry exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=net)

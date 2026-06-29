@@ -117,3 +117,10 @@ Per-environment config keys (bound with `IOptions<T>`):
 - Audit sink wiring (App Insights connection) -> `appinsights-instrumentation`.
 - AI gateway-level rate limits and jailbreak detection -> `azure-aigateway`.
 - Identity that the audit log records -> `agent-secrets-identity`.
+
+## Official Documentation
+
+- [Azure AI Content Safety overview](https://learn.microsoft.com/en-us/azure/ai-services/content-safety/overview)
+- [Prompt Shield (jailbreak / prompt injection detection)](https://learn.microsoft.com/en-us/azure/ai-services/content-safety/concepts/jailbreak-detection)
+- [Azure AI Language PII detection](https://learn.microsoft.com/en-us/azure/ai-services/language-service/personally-identifiable-information/overview)
+- [Microsoft Presidio (open-source PII detection)](https://microsoft.github.io/presidio/)

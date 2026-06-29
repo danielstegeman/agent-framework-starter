@@ -236,3 +236,9 @@ Do **not** push to a remote — that's the user's call.
 - Infra -> `agent-infrastructure-overview` -> `azure-container-apps-bicep` + `azure-devops-pipelines-for-agents`.
 - Eval scaffolding inside the new test project -> `agent-evaluation-strategy`.
 - Guardrail middleware on the new agent -> `agent-guardrails-safety`.
+
+## Official Documentation
+
+- [Microsoft Agents SDK (GitHub)](https://github.com/microsoft/agents)
+- [Microsoft.Extensions.AI.Evaluation](https://learn.microsoft.com/en-us/dotnet/ai/conceptual/evaluation-libraries)
+- [Azure Identity client library for .NET](https://learn.microsoft.com/en-us/dotnet/api/overview/azure/identity-readme)

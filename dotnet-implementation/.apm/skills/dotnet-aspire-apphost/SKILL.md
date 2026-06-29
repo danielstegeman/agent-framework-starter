@@ -92,3 +92,9 @@ dotnet run --project src/<Agent>.AppHost -- --publisher manifest --output-path .
 - CI/CD that *doesn't* use azd -> `azure-devops-pipelines-for-agents`.
 - CI/CD that *does* use azd -> `azure-prepare` then `azure-deploy`.
 - Implementation patterns -> `maf-csharp-implementation`.
+
+## Official Documentation
+
+- [.NET Aspire overview](https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview)
+- [Aspire AppHost](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview)
+- [Aspire dashboard](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard/overview)

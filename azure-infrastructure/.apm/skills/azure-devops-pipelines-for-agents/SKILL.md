@@ -65,3 +65,9 @@ If you must reference a secret from the pipeline itself, link the variable group
 - The runtime identity the pipeline creates / wires -> `agent-secrets-identity`.
 - General ADO YAML review -> `pipeline-yaml-review`.
 - Generic IaC review -> `infrastructure-review`.
+
+## Official Documentation
+
+- [Azure Pipelines YAML schema reference](https://learn.microsoft.com/en-us/azure/devops/pipelines/yaml-schema)
+- [Workload identity federation service connections (Azure DevOps)](https://learn.microsoft.com/en-us/azure/devops/pipelines/release/configure-workload-identity)
+- [AzureCLI@2 task reference](https://learn.microsoft.com/en-us/azure/devops/pipelines/tasks/reference/azure-cli-v2)
