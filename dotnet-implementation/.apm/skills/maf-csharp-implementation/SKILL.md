@@ -219,6 +219,42 @@ var result = await agent.RunAsync<MyDto>("Summarise the work item as JSON.");
 
 Define `MyDto` as a record with `[Description]` on every property. The framework infers the schema and instructs the model accordingly. Validate after deserialisation; the schema isn't a contract.
 
+## Observability
+
+Three levels of spans should appear in every agent trace:
+
+```
+orchestrator.run
+  orchestrator.gather-context
+  orchestrator.plan
+    gen_ai.chat               ← emitted by UseOpenTelemetry()
+      execute_tool            ← emitted by UseOpenTelemetry()
+  orchestrator.implement  [attempt=N]
+    gen_ai.chat               ← emitted by UseOpenTelemetry()
+      execute_tool            ← emitted by UseOpenTelemetry()
+```
+
+**Rule: call `.UseOpenTelemetry()` on every IChatClient builder.** Without it, no LLM spans, no token counts, and no tool-call hierarchy are emitted — regardless of what activity sources are registered in `AddAgentTelemetry`. See [references/builder-and-tools.cs](references/builder-and-tools.cs).
+
+```csharp
+var chatClient = new ChatCompletionsClient(endpoint, credential)
+    .AsChatClient(deploymentName)
+    .AsBuilder()
+    .UseOpenTelemetry(configure: o => o.EnableSensitiveData = <true|false>)
+    .Use(inner => new OpaqueClientWrapper(inner))   // MUST be last — see below
+    .Build();
+```
+
+> **MAF middleware-bypass fix — required.** `ChatClientAgent` (MAF) calls `GetService<ChatCompletionsClient>()` on the `IChatClient` it receives. Because `DelegatingChatClient.GetService` tunnels unknown types straight through to the inner client, this extracts the raw Azure AI Inference client and calls it directly — skipping `OpenTelemetryChatClient` entirely. `OpaqueClientWrapper` intercepts `GetService<ChatCompletionsClient>()` and returns `null`, forcing MAF to fall back to the standard `IChatClient` interface (which does go through the middleware). Add it as the **last** (outermost) middleware. See `OpaqueClientWrapper` in [references/builder-and-tools.cs](references/builder-and-tools.cs).
+
+`EnableSensitiveData = true` captures full prompt and completion text as span events (`gen_ai.prompt` / `gen_ai.completion`). This is an **architectural decision** about the data your agent processes — not a dev/prod environment toggle:
+- Agent workflow data is developer-accessible (code, logs, diffs, tool outputs) → `true`
+- Agent workflow data contains user PII or confidential business content → `false`
+
+**Rule: create orchestration phase spans from your own `ActivitySource`.** Register it in `TelemetryRegistration` and start a span at the beginning of each deterministic workflow step. The `gen_ai.chat` spans emitted by `UseOpenTelemetry()` automatically become children via `Activity.Current`. See [references/orchestrator-spans.cs](references/orchestrator-spans.cs) for the full pattern including error recording and iteration tags.
+
+`WithMetrics()` in your telemetry setup subscribes to `gen_ai.client.token.usage` (counter) and `gen_ai.client.operation.duration` (histogram) — both emitted by MEAi when `UseOpenTelemetry()` is active. See [references/otel-azuremonitor.cs](references/otel-azuremonitor.cs).
+
 ## What this skill does NOT cover
 
 - Project scaffolding commands -> `dotnet-agent-bootstrap`.
@@ -226,4 +262,15 @@ Define `MyDto` as a record with `[Description]` on every property. The framework
 - Eval tests -> `agent-evaluation-strategy`.
 - Guardrail middleware implementations -> `agent-guardrails-safety`.
 - Auth & secrets -> `agent-secrets-identity`.
-- Running model-generated code/commands in an isolated sandbox -> `agent-sandbox-csharp` (the `ISandbox` abstraction, dynamic-sessions + local Docker implementations, and `run_command` / `read_file` / `write_file` / `git` tools).
+
+## Official Documentation
+
+**Microsoft Agent Framework & Extensions.AI**
+- [Microsoft Agents SDK (GitHub)](https://github.com/microsoft/agents)
+- [Microsoft.Extensions.AI overview](https://learn.microsoft.com/en-us/dotnet/ai/microsoft-extensions-ai)
+- [IChatClient interface](https://learn.microsoft.com/en-us/dotnet/api/microsoft.extensions.ai.ichatclient)
+- [Azure AI Inference client library for .NET](https://learn.microsoft.com/en-us/dotnet/api/overview/azure/ai.inference-readme)
+
+**OpenTelemetry & Azure Monitor**
+- [OpenTelemetry for .NET](https://opentelemetry.io/docs/languages/net/)
+- [Azure Monitor OpenTelemetry exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=net)

@@ -86,10 +86,29 @@ public static class WeatherAgentExtensions
             // Microsoft Phi, Meta Llama, etc. — without changing this code.
             // DefaultAzureCredential uses 'az login' locally and managed identity
             // in Azure. No API keys stored anywhere.
+            // UseOpenTelemetry() activates GenAI semantic-convention spans:
+            //   gen_ai.usage.input_tokens, gen_ai.usage.output_tokens, gen_ai.request.model
+            // It also nests tool-call spans under the parent LLM span automatically.
+            //
+            // EnableSensitiveData controls whether prompt and completion content appear
+            // as span attributes (gen_ai.input.messages / gen_ai.output.messages). This is
+            // an architectural decision tied to the data the agent processes:
+            //   - Workflow data is developer-accessible (code, logs, diffs) → true
+            //   - Workflow data contains user PII or confidential business content → false
+            //
+            // OpaqueClientWrapper MUST be the outermost middleware (added last).
+            // MAF's ChatClientAgent calls GetService<ChatCompletionsClient>() on the
+            // IChatClient to obtain the raw Azure client, which bypasses all middleware.
+            // The wrapper intercepts that call and returns null, forcing MAF to fall back
+            // to the standard IChatClient interface so OpenTelemetryChatClient fires.
             var chatClient = new ChatCompletionsClient(
                     new Uri(opts.Endpoint),
                     new DefaultAzureCredential())
-                .AsChatClient(opts.DeploymentName);
+                .AsChatClient(opts.DeploymentName)
+                .AsBuilder()
+                .UseOpenTelemetry(configure: o => o.EnableSensitiveData = true)
+                .Use(inner => new OpaqueClientWrapper(inner))
+                .Build();
 
             // Pull tool methods from the registered class via reflection.
             var tools = sp.GetRequiredService<WeatherTools>();
@@ -116,23 +135,21 @@ public static class WeatherAgentExtensions
     }
 }
 
-// ---------------------------------------------------------------------------
-// PROJECT-LEVEL COMPOSER
-// FILE: src/<Solution>/ServiceCollectionExtensions.cs
-//
-// The host calls this single method. It composes slices. Adding a new agent
-// = adding one line here and a new Agents/<NewAgent>/ folder. Nothing else
-// in the host changes.
-// ---------------------------------------------------------------------------
-
-public static class AgentProjectExtensions
+/// <summary>
+/// Prevents callers from obtaining the underlying <see cref="ChatCompletionsClient"/>
+/// via <see cref="IChatClient.GetService{T}"/>. MAF's <c>ChatClientAgent</c> calls
+/// <c>GetService&lt;ChatCompletionsClient&gt;()</c> to bypass the middleware chain and call
+/// Azure AI Inference directly. Blocking that call forces MAF to fall back to the standard
+/// IChatClient interface, which goes through <see cref="OpenTelemetryChatClient"/>.
+///
+/// Place this as the outermost middleware (last in the builder chain).
+/// </summary>
+internal sealed class OpaqueClientWrapper(IChatClient inner) : DelegatingChatClient(inner)
 {
-    public static IServiceCollection AddWeatherAgentProject(
-        this IServiceCollection services, IConfiguration config)
+    public override object? GetService(Type serviceType, object? serviceKey = null)
     {
-        services.AddAgentTelemetry(config);
-        services.AddWeatherAgent(config);           // Agents/WeatherAgent/
-        // services.AddForecastAgent(config);       // Agents/ForecastAgent/ — add here when needed
-        return services;
+        if (serviceType == typeof(ChatCompletionsClient))
+            return null;
+        return base.GetService(serviceType, serviceKey);
     }
 }

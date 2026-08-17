@@ -5,60 +5,70 @@ description: Add a .NET Aspire AppHost to a code-first agent solution to orchest
 
 # .NET Aspire AppHost for a Code-First Agent
 
-Add an Aspire AppHost project that runs the agent + its local dependencies under one F5 and exports a container manifest for `azd` deployment.
+Add an Aspire AppHost project that runs the agent + its local dependencies under one `aspire run` and provides a free local dashboard for OTel traces, logs, and metrics.
 
 ## When to use
 
 - New solution, or an existing one with no local-orchestration story.
 - The dev loop currently requires manually starting multiple processes.
-- You want a free Aspire dashboard for local OTel traces without standing up Jaeger.
+- You want a free Aspire dashboard for local OTel traces without standing up Jaeger or Docker.
+
+## Prerequisites
+
+- **.NET 10 SDK** — required for C# AppHosts.
+- **Aspire CLI** — install once: `dotnet tool install -g aspire`. Verify: `aspire --version`.
+- **Docker is NOT required** for this agent use-case. Docker is only needed if you add containerized dependencies (Redis, Postgres, etc.). The Aspire dashboard itself runs as a .NET process.
 
 ## What this skill produces
 
-1. A new project `src/<Agent>.AppHost/` referencing all runnable projects.
-2. A `Program.cs` in AppHost that declares the agent project + dependencies as Aspire resources.
-3. Optional `appsettings.json` updates in the agent host so it reads OTLP endpoint from Aspire's auto-injected env vars.
+1. A new project `src/<Agent>.AppHost/` created by `aspire init` (detects the `.sln`/`.slnx` and scaffolds a project-based AppHost automatically).
+2. A `Program.cs` in AppHost that declares the agent project as an Aspire resource.
+3. Aspire injects `OTEL_EXPORTER_OTLP_ENDPOINT` automatically — no manual env var needed.
 
-## Commands
+## Setup
 
 ```bash
-# From the solution root
-dotnet new aspire-apphost  -n <Agent>.AppHost -o src/<Agent>.AppHost
-dotnet sln add src/<Agent>.AppHost/<Agent>.AppHost.csproj
+# From the solution root — aspire init detects .slnx/.sln and creates a project-based AppHost
+aspire init
+
+# Add project reference from AppHost to the agent host
 dotnet add src/<Agent>.AppHost reference src/<Agent>.Host/<Agent>.Host.csproj
 ```
 
-For dependencies the agent uses, add their Aspire hosting packages:
+For containerized dependencies the agent uses (only if Docker is available):
 
 ```bash
-dotnet add src/<Agent>.AppHost package Aspire.Hosting.Redis        # optional
-dotnet add src/<Agent>.AppHost package Aspire.Hosting.Azure.CosmosDB # optional
+aspire add redis        # optional
+aspire add postgres     # optional
 ```
 
-## AppHost shape
+## AppHost Program.cs shape
 
 ```csharp
 var builder = DistributedApplication.CreateBuilder(args);
 
-// Optional infra
-var redis = builder.AddRedis("session-store");
-
-// The agent host
-var agent = builder.AddProject<Projects._Agent_Host>("agent")
-                   .WithReference(redis)
-                   .WithEnvironment("AzureOpenAI__Endpoint",      "https://...")
-                   .WithEnvironment("AzureOpenAI__DeploymentName","gpt-4o");
+// The agent host — Aspire uses the strongly-typed Projects.<Name> generated from the ProjectReference
+var agent = builder.AddProject<Projects._Agent_Host>("agent");
 
 builder.Build().Run();
 ```
 
 Aspire automatically injects `OTEL_EXPORTER_OTLP_ENDPOINT` and starts the dashboard. The agent's `AddAgentTelemetry(...)` (see [otel-azuremonitor.cs](../maf-csharp-implementation/references/otel-azuremonitor.cs)) already picks up OTLP when no App Insights connection string is set.
 
+## Running
+
+```bash
+# From the solution root (or the AppHost directory)
+aspire run
+```
+
+The CLI prints the dashboard URL, e.g. `Dashboard: https://localhost:17068/login?t=...`.
+
 ## Rules
 
-- **AppHost is dev-only.** It is never deployed. The csproj should `<IsPackable>false</IsPackable>` and `<IsAspireHost>true</IsAspireHost>`.
-- **No production endpoints in AppHost.** Reference Azure OpenAI explicitly with `.WithEnvironment(...)`, or have the agent host fall back to `appsettings.Development.json`. Never put production secrets in AppHost.
-- **Aspire's emulators replace local installs.** Use `AddCosmosDB().RunAsEmulator()`, `AddSqlServer().RunAsContainer()`, etc. — don't ask the user to install local DBs.
+- **AppHost is dev-only.** It is never deployed. The csproj should have `<IsAspireHost>true</IsAspireHost>`.
+- **No production endpoints in AppHost.** Use `.WithEnvironment(...)` for local overrides only, or rely on `appsettings.Development.json` in the agent host. Never put production secrets in AppHost.
+- **Containerized emulators require Docker.** If the machine cannot run Docker, do not add `AddRedis()`, `AddPostgres()`, or any `RunAsContainer()` / `RunAsEmulator()` calls. Model those as external resources or skip them for local dev.
 - **The OTel dashboard is the killer feature.** Make sure the agent uses OTel (it should already, per `maf-csharp-implementation`). Tool spans show up automatically.
 
 ## Manifest generation for azd
@@ -73,8 +83,8 @@ dotnet run --project src/<Agent>.AppHost -- --publisher manifest --output-path .
 
 ## When NOT to add Aspire
 
-- The agent has zero dependencies beyond Azure OpenAI -> overkill, just run the host directly with `dotnet run` and add OTLP env var manually.
-- The team uses Docker Compose religiously for local dev -> don't fight that; map the agent into the existing compose file.
+- The agent has zero dependencies beyond Azure OpenAI **and** the team can set `OTEL_EXPORTER_OTLP_ENDPOINT` manually → just run `dotnet run` and point at a standalone dashboard or skip telemetry UI entirely.
+- The team uses Docker Compose religiously for local dev → don't fight that; map the agent into the existing compose file.
 
 ## Hand-off
 
@@ -82,3 +92,9 @@ dotnet run --project src/<Agent>.AppHost -- --publisher manifest --output-path .
 - CI/CD that *doesn't* use azd -> `azure-devops-pipelines-for-agents`.
 - CI/CD that *does* use azd -> `azure-prepare` then `azure-deploy`.
 - Implementation patterns -> `maf-csharp-implementation`.
+
+## Official Documentation
+
+- [.NET Aspire overview](https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview)
+- [Aspire AppHost](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview)
+- [Aspire dashboard](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard/overview)

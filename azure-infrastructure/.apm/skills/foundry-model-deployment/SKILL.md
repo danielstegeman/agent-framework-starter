@@ -141,3 +141,10 @@ az cognitiveservices account deployment list \
   --resource-group <rg> \
   --query "[].{name:name, model:properties.model.name, version:properties.model.version, publisher:properties.model.format}"
 ```
+
+## Official Documentation
+
+- [Azure AI Foundry overview](https://learn.microsoft.com/en-us/azure/ai-foundry/what-is-azure-ai-foundry)
+- [Azure AI Foundry model catalog](https://learn.microsoft.com/en-us/azure/ai-foundry/concepts/model-catalog)
+- [Azure AI Model Inference API](https://learn.microsoft.com/en-us/azure/ai-foundry/reference/reference-model-inference-api)
+- [Microsoft.CognitiveServices/accounts Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.cognitiveservices/accounts)

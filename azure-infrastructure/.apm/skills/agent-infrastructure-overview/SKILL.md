@@ -131,3 +131,9 @@ Once the checklist is walked:
 - Functions / App Service / generic Azure deploy -> `azure-prepare`.
 
 Do not produce Bicep or YAML in this skill — that's the leaves' job.
+
+## Official Documentation
+
+- [Azure Container Apps overview](https://learn.microsoft.com/en-us/azure/container-apps/overview)
+- [Azure Container Registry overview](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro)
+- [Azure Monitor OpenTelemetry exporter](https://learn.microsoft.com/en-us/azure/azure-monitor/app/opentelemetry-enable?tabs=net)

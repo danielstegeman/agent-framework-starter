@@ -96,3 +96,10 @@ The pipeline runs `az deployment group create` — if `what-if` shows surprises,
 - App Insights connection-string source -> `appinsights-instrumentation`.
 - Deployment execution / azd -> `azure-deploy`.
 - Pre-deploy validation -> `azure-validate`.
+
+## Official Documentation
+
+- [Azure Container Apps managed identity](https://learn.microsoft.com/en-us/azure/container-apps/managed-identity)
+- [Azure Container Apps secret management (Key Vault references)](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets)
+- [Azure Container Apps ingress](https://learn.microsoft.com/en-us/azure/container-apps/ingress-overview)
+- [Microsoft.App/containerApps Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.app/containerapps)
