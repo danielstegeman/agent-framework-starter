@@ -88,6 +88,8 @@ Policy examples:
 - `DeleteBranch` is blocked outright in agents that aren't given that role.
 - Rate-limit destructive tools per session.
 
+**Sandbox tools count as tool calls.** When the agent executes model-generated code in a sandbox (`agent-sandbox-csharp`), the `run_command` / `read_file` / `write_file` / `git` tools must land on this same audit trail — same span shape (`tool.name`, `tool.success`, `tool.duration_ms`), same hashed-args-in-prod rule (command text and file paths are hashed), and the same deny-list / rate-limit policy. Treat command execution as a destructive tool by default.
+
 ## Audit retention
 
 - 30 days minimum, 1 year typical, 7 years if regulated. Decide explicitly per agent.

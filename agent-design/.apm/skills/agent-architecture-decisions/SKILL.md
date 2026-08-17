@@ -95,7 +95,8 @@ Also capture (these are policy, not backing-dependent):
 
 A yes/no gate, then a dedicated decision branch.
 
-- If the agent will execute LLM-generated code or shell commands, **defer to the `agent-sandboxing` skill** for the full decision (runtime choice, egress policy, credential isolation, resource/time limits, audit). Capture its output here.
+- A sandbox is **required whenever the agent executes any form of model-generated code or command** (code interpreter, data analysis, `run_command`, build/test loops, coding agent, LLM-chosen filesystem/git). It is **not** required when the agent only calls typed tools, only returns code as text, or only retrieves context.
+- If execution is in scope, **defer to the `agent-sandboxing` skill** for the full decision (whether to execute, runtime choice — Container Apps dynamic sessions custom container is the default — execution model, per-environment images, egress policy, credential isolation, resource/time/scaling limits, audit, local dev runtime). Capture its output here.
 - If the agent never executes generated code, record that explicitly and move on.
 
 Security note: open network egress from untrusted, model-generated code is the highest-risk choice in the whole design. Don't wave it through.
