@@ -1,62 +1,163 @@
 // references/guardrail-middleware.cs
 //
-// Guardrail middleware patterns for agents. Three layers:
+// Small glue examples for current Microsoft Agent Framework middleware. Three layers:
+//   1. Input guardrail    - redact/check user and external-content messages before inference.
+//   2. Output guardrail   - inspect assistant messages before returning them.
+//   3. Tool-call guardrail - approve/audit/policy-check functions before invocation.
 //
-//   1. Input guardrail   - inspect/redact the user prompt before it hits the LLM.
-//   2. Output guardrail  - inspect/redact the assistant message before returning.
-//   3. Tool-call guardrail - inspect tool arguments before invocation; block on policy.
-//
-// Implemented as IChatClient delegating middleware. Compose them with
-// ChatClientBuilder.UsePipeline(...) before passing to ChatClientAgent.
+// Compose IChatClient middleware with chatClient.AsBuilder().Use(...).Build().
+// Compose agent run + function-calling middleware with agent.AsBuilder().Use(...).Build().
 
+using System.Diagnostics;
+using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 
-public sealed class InputRedactionMiddleware : DelegatingChatClient
+public static class GuardrailMiddleware
 {
-    private readonly IPiiDetector _pii;
+    public static IChatClient WithChatGuardrails(
+        this IChatClient chatClient,
+        IPiiDetector pii,
+        IContentSafety contentSafety) =>
+        chatClient
+            .AsBuilder()
+            .Use(
+                getResponseFunc: (messages, options, inner, cancellationToken) =>
+                    InputGuardrailAsync(messages, options, inner, pii, contentSafety, cancellationToken),
+                getStreamingResponseFunc: null)
+            .Use(
+                getResponseFunc: (messages, options, inner, cancellationToken) =>
+                    OutputGuardrailAsync(messages, options, inner, contentSafety, cancellationToken),
+                getStreamingResponseFunc: null)
+            .Build();
 
-    public InputRedactionMiddleware(IChatClient inner, IPiiDetector pii) : base(inner)
-        => _pii = pii;
+    public static AIAgent WithAgentGuardrails(
+        this AIAgent agent,
+        IToolPolicy policy,
+        IAuditSink audit) =>
+        agent
+            .AsBuilder()
+            .Use(
+                runFunc: AuditAgentRunAsync,
+                runStreamingFunc: null)
+            .Use((innerAgent, context, next, cancellationToken) =>
+                FunctionPolicyAsync(innerAgent, context, next, policy, audit, cancellationToken))
+            .Build();
 
-    public override async Task<ChatResponse> GetResponseAsync(
+    public static AIFunction RequireHumanApproval(Delegate tool) =>
+        new ApprovalRequiredAIFunction(AIFunctionFactory.Create(tool));
+
+    private static async Task<ChatResponse> InputGuardrailAsync(
         IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
+        ChatOptions? options,
+        IChatClient inner,
+        IPiiDetector pii,
+        IContentSafety contentSafety,
+        CancellationToken cancellationToken)
     {
-        var redacted = messages.Select(m => m with { Text = _pii.Redact(m.Text ?? string.Empty) }).ToList();
-        return await base.GetResponseAsync(redacted, options, cancellationToken);
-    }
-}
-
-public sealed class PromptInjectionGuardMiddleware : DelegatingChatClient
-{
-    public PromptInjectionGuardMiddleware(IChatClient inner) : base(inner) { }
-
-    public override async Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages,
-        ChatOptions? options = null,
-        CancellationToken cancellationToken = default)
-    {
-        foreach (var m in messages.Where(m => m.Role == ChatRole.User))
+        var guarded = new List<ChatMessage>();
+        foreach (var message in messages)
         {
-            // Real implementation: call Azure AI Content Safety prompt-shield, or a
-            // local classifier. Throw or rewrite when injection is detected.
-            if (LooksLikeJailbreak(m.Text)) throw new GuardrailException("Prompt injection detected.");
+            if (message.Role == ChatRole.User)
+            {
+                await contentSafety.ThrowIfPromptInjectionAsync(message.Text ?? string.Empty, cancellationToken);
+                guarded.Add(message with { Text = pii.Redact(message.Text ?? string.Empty) });
+            }
+            else
+            {
+                guarded.Add(message);
+            }
         }
-        return await base.GetResponseAsync(messages, options, cancellationToken);
+
+        return await inner.GetResponseAsync(guarded, options, cancellationToken);
     }
 
-    private static bool LooksLikeJailbreak(string? t) =>
-        t is not null && t.Contains("ignore previous", StringComparison.OrdinalIgnoreCase);
+    private static async Task<ChatResponse> OutputGuardrailAsync(
+        IEnumerable<ChatMessage> messages,
+        ChatOptions? options,
+        IChatClient inner,
+        IContentSafety contentSafety,
+        CancellationToken cancellationToken)
+    {
+        var response = await inner.GetResponseAsync(messages, options, cancellationToken);
+        foreach (var message in response.Messages.Where(m => m.Role == ChatRole.Assistant))
+        {
+            await contentSafety.ThrowIfUnsafeOutputAsync(message.Text ?? string.Empty, cancellationToken);
+        }
+
+        return response;
+    }
+
+    private static async Task<AgentResponse> AuditAgentRunAsync(
+        IEnumerable<ChatMessage> messages,
+        AgentSession? session,
+        AgentRunOptions? options,
+        AIAgent innerAgent,
+        CancellationToken cancellationToken)
+    {
+        using var activity = GuardrailActivity.Source.StartActivity("agent.run");
+        activity?.SetTag("agent.guardrails", true);
+        return await innerAgent.RunAsync(messages, session, options, cancellationToken);
+    }
+
+    private static async ValueTask<object?> FunctionPolicyAsync(
+        AIAgent agent,
+        FunctionInvocationContext context,
+        Func<FunctionInvocationContext, CancellationToken, ValueTask<object?>> next,
+        IToolPolicy policy,
+        IAuditSink audit,
+        CancellationToken cancellationToken)
+    {
+        var toolName = context.Function.Name;
+        var argsHash = policy.HashArguments(context);
+
+        if (policy.IsBlocked(toolName, argsHash))
+        {
+            await audit.RecordAsync(toolName, argsHash, success: false, cancellationToken);
+            throw new GuardrailException($"Tool call blocked by policy: {toolName}");
+        }
+
+        using var activity = GuardrailActivity.Source.StartActivity("tool.call");
+        activity?.SetTag("tool.name", toolName);
+
+        try
+        {
+            var result = await next(context, cancellationToken);
+            activity?.SetTag("tool.success", true);
+            await audit.RecordAsync(toolName, argsHash, success: true, cancellationToken);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetTag("tool.success", false);
+            activity?.SetTag("tool.error_type", ex.GetType().Name);
+            await audit.RecordAsync(toolName, argsHash, success: false, cancellationToken);
+            throw;
+        }
+    }
 }
 
-public sealed class ToolCallAuditMiddleware
+public static class GuardrailActivity
 {
-    // Hook into AIFunction by wrapping it at registration time. The Agent Framework
-    // exposes AIFunctionFactory.Create(...) — wrap the resulting AIFunction in a
-    // class that overrides InvokeAsync to record an Activity span with
-    // arguments (in dev), result hash, success/failure.
+    public static readonly ActivitySource Source = new("Agent.Guardrails");
 }
 
 public interface IPiiDetector { string Redact(string input); }
+
+public interface IContentSafety
+{
+    Task ThrowIfPromptInjectionAsync(string text, CancellationToken cancellationToken);
+    Task ThrowIfUnsafeOutputAsync(string text, CancellationToken cancellationToken);
+}
+
+public interface IToolPolicy
+{
+    string HashArguments(FunctionInvocationContext context);
+    bool IsBlocked(string toolName, string argsHash);
+}
+
+public interface IAuditSink
+{
+    Task RecordAsync(string toolName, string argsHash, bool success, CancellationToken cancellationToken);
+}
+
 public sealed class GuardrailException(string message) : Exception(message);

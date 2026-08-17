@@ -4,7 +4,7 @@
 // implementation is selected by configuration so local F5 uses Docker and the
 // deployed app uses Azure Container Apps dynamic sessions. The SandboxTools
 // class is registered like any other tool class and discovered into AIFunctions
-// by the agent build-up (see maf-csharp-implementation builder-and-tools.cs).
+// by the agent build-up (see the tool-authoring guidance in maf-csharp-implementation).
 //
 // FILE LOCATION: src/<Solution>.Tools.Sandbox/ServiceCollectionExtensions.cs
 //

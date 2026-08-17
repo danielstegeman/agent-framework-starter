@@ -1,6 +1,6 @@
 # references/azure-pipelines.yml
 # Build + deploy pipeline for a code-first agent service hosted on Azure Container Apps.
-# Two stages: build (test + publish container) and deploy (revision update).
+# Two stages: build (test + validate container image) and deploy (Bicep revision update).
 # Uses workload-identity federation for the Azure service connection.
 
 trigger:
@@ -17,7 +17,7 @@ parameters:
     values: [dev, test, prod]
 
 variables:
-  - group: agent-${{ parameters.targetEnvironment }}   # contains ACR name, ACA env name, RG, etc.
+  - group: agent-${{ parameters.targetEnvironment }}   # contains ACR name, ACA env name, RG, Foundry endpoint, etc.
   - name: imageRepo
     value: agents/$(Build.Repository.Name)
   - name: imageTag
@@ -45,8 +45,15 @@ stages:
             condition: succeededOrFailed()
             inputs: { testResultsFormat: VSTest, testResultsFiles: '**/*.trx' }
 
+          - script: |
+              set -euo pipefail
+              docker build -t $(acrName).azurecr.io/$(imageRepo):$(imageTag) \
+                           -t $(acrName).azurecr.io/$(imageRepo):latest .
+            displayName: Build container
+
           - task: AzureCLI@2
-            displayName: Build & push container
+            displayName: Push container
+            condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
             inputs:
               azureSubscription: $(serviceConnection)
               scriptType: bash
@@ -54,8 +61,6 @@ stages:
               inlineScript: |
                 set -euo pipefail
                 az acr login --name $(acrName)
-                docker build -t $(acrName).azurecr.io/$(imageRepo):$(imageTag) \
-                              -t $(acrName).azurecr.io/$(imageRepo):latest .
                 docker push $(acrName).azurecr.io/$(imageRepo):$(imageTag)
                 docker push $(acrName).azurecr.io/$(imageRepo):latest
 
@@ -84,5 +89,8 @@ stages:
                             image=$(acrName).azurecr.io/$(imageRepo):$(imageTag) \
                             envName=$(acaEnvName) \
                             appName=$(acaAppName) \
+                            environmentName=${{ parameters.targetEnvironment }} \
                             keyVaultName=$(keyVaultName) \
-                            appInsightsConnectionStringSecretName=$(aiSecretName)
+                            appInsightsConnectionStringSecretName=$(aiSecretName) \
+                            azureAiProjectEndpoint=$(azureAiProjectEndpoint) \
+                            azureAiModelDeploymentName=$(azureAiModelDeploymentName)

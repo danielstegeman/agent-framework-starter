@@ -1,20 +1,19 @@
 // references/eval-fixture.cs
 //
-// Evaluation test pattern using Microsoft.Extensions.AI.Evaluation + xUnit.
-// Folder convention:
-//
-//   tests/<YourAgent>.Evaluation.Tests/
-//     Datasets/<scenario-name>/case-001.json        # flat: prompt/expected/notes
-//     Datasets/<scenario-name>/case-002/             # folder-per-case: multi-part input
-//       input.json, build-log.txt, case.json, sample-output.json
-//     Evaluators/                                    # custom IEvaluator implementations
-//     Fixtures/EvalFixture.cs                        # shared DI + agent build-up
-//     <Workflow>EvalTests.cs                         # one [Theory] per dataset folder
+// Repo glue for Microsoft.Extensions.AI.Evaluation + xUnit. Use the official
+// evaluation docs for API details; keep this fixture focused on local dataset
+// conventions, CI-safe skipping, and Agent Framework Foundry wiring.
 //
 // NuGet packages required (in addition to the agent's own dependencies):
+//   Azure.AI.Projects                     // prerelease as noted by Agent Framework docs
+//   Azure.Identity
+//   Microsoft.Agents.AI
+//   Microsoft.Agents.AI.Foundry           // prerelease as noted by Agent Framework docs
 //   Microsoft.Extensions.AI.Evaluation.Reporting
-//   Xunit.SkippableFact                             # for CI-safe skip-when-unconfigured
+//   Microsoft.Extensions.AI.Evaluation.Quality
+//   Xunit.SkippableFact
 
+using Azure.AI.Projects;
 using Azure.Core;
 using Azure.Identity;
 using Microsoft.Agents.AI;
@@ -27,7 +26,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
-// Simple flat-file case shape (use when the agent takes a single prompt):
 public sealed record EvalCase(string Prompt, string Expected, string? Notes = null);
 
 public sealed class EvalFixture : IAsyncLifetime
@@ -37,7 +35,7 @@ public sealed class EvalFixture : IAsyncLifetime
     /// <summary>Null when no model endpoint is configured — model-dependent tests must skip.</summary>
     public ReportingConfiguration? Reporting { get; private set; }
 
-    /// <summary>True when an Azure AI Foundry endpoint and deployment are configured.</summary>
+    /// <summary>True when an Azure AI Foundry project endpoint and deployment are configured.</summary>
     public bool ModelConfigured { get; private set; }
 
     public Task InitializeAsync()
@@ -45,47 +43,60 @@ public sealed class EvalFixture : IAsyncLifetime
         var config = new ConfigurationBuilder()
             .SetBasePath(AppContext.BaseDirectory)
             .AddJsonFile("appsettings.eval.json", optional: true)
-            // Allow developers to supply real endpoint values without editing the committed file.
             .AddUserSecrets(typeof(EvalFixture).Assembly, optional: true)
             .AddEnvironmentVariables()
             .Build();
 
-        var agentEndpoint   = config["AzureAIFoundry:Endpoint"];
-        var agentDeployment = config["AzureAIFoundry:DeploymentName"];
+        var agentEndpoint = config["AZURE_AI_PROJECT_ENDPOINT"];
+        var agentDeployment = config["AZURE_AI_MODEL_DEPLOYMENT_NAME"];
         ModelConfigured = !string.IsNullOrWhiteSpace(agentEndpoint)
                        && !string.IsNullOrWhiteSpace(agentDeployment);
 
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(config);
         services.AddLogging();
-
-        // Exclude the managed-identity IMDS probe when not running on Azure — it hangs for
-        // minutes before failing, blocking the credential chain from reaching Visual Studio /
-        // Azure CLI login on a developer machine.
         services.AddSingleton<TokenCredential>(_ => new DefaultAzureCredential(
             new DefaultAzureCredentialOptions
             {
                 ExcludeManagedIdentityCredential = !IsRunningOnAzure(),
             }));
 
-        // Register agent + tools exactly the way the production host does.
-        // services.AddYourAgent();
+        if (ModelConfigured)
+        {
+            services.AddSingleton(sp =>
+            {
+                var credential = sp.GetRequiredService<TokenCredential>();
+                var project = new AIProjectClient(new Uri(agentEndpoint!), credential);
+
+                return project.AsAIAgent(
+                    model: agentDeployment!,
+                    name: "agent-under-test",
+                    instructions: "Replace with the same instructions used by the production host.",
+                    tools: [/* AIFunctionFactory.Create(...) production tools */]);
+            });
+        }
+
         Services = services.BuildServiceProvider();
 
         if (ModelConfigured)
         {
-            // Judge defaults to the same deployment as the agent ("start cheap, split later").
-            // Override with Judge:Endpoint / Judge:DeploymentName in user secrets or env vars
-            // to point at a dedicated judge deployment.
-            var judgeEndpoint   = config["Judge:Endpoint"]       ?? agentEndpoint!;
-            var judgeDeployment = config["Judge:DeploymentName"] ?? agentDeployment!;
-            // Build a judge IChatClient (same way the agent registration builds one):
-            // var judge = AgentRegistration.CreateChatClient(judgeEndpoint, judgeDeployment, credential);
+            var credential = Services.GetRequiredService<TokenCredential>();
+            var judgeEndpoint = config["Judge:AZURE_AI_PROJECT_ENDPOINT"]
+                             ?? config["JUDGE_AZURE_AI_PROJECT_ENDPOINT"]
+                             ?? agentEndpoint!;
+            var judgeDeployment = config["Judge:AZURE_AI_MODEL_DEPLOYMENT_NAME"]
+                                ?? config["JUDGE_AZURE_AI_MODEL_DEPLOYMENT_NAME"]
+                                ?? agentDeployment!;
+
+            IChatClient judgeClient = new AIProjectClient(new Uri(judgeEndpoint), credential)
+                .GetProjectOpenAIClient()
+                .GetProjectResponsesClient()
+                .AsIChatClient(judgeDeployment);
 
             Reporting = DiskBasedReportingConfiguration.Create(
                 storageRootPath: Path.Combine(AppContext.BaseDirectory, "EvalResults"),
                 evaluators: [new RelevanceEvaluator(), new CoherenceEvaluator(), new EquivalenceEvaluator()],
-                // chatConfiguration: new ChatConfiguration(judge),
+                chatConfiguration: new ChatConfiguration(judgeClient),
                 enableResponseCaching: true);
         }
 
@@ -97,9 +108,6 @@ public sealed class EvalFixture : IAsyncLifetime
         (Services as IDisposable)?.Dispose();
         return Task.CompletedTask;
     }
-
-    // Scenario and iteration are separate path segments — never join with '/'.
-    // Call: await Reporting!.CreateScenarioRunAsync(scenarioName, iterationName: caseName)
 
     public static IEnumerable<string> EnumerateCases(string scenario)
     {
@@ -121,11 +129,6 @@ public sealed class MyAgentEvalTests : IClassFixture<EvalFixture>
     private readonly EvalFixture _fx;
     public MyAgentEvalTests(EvalFixture fx) => _fx = fx;
 
-    // -------------------------------------------------------------------------
-    // Offline deterministic test — runs in CI with no model, no credentials.
-    // Feed a recorded sample-output.json through your custom IEvaluators and
-    // assert none are Unacceptable. This validates the evaluator logic itself.
-    // -------------------------------------------------------------------------
     [Fact]
     public async Task Deterministic_evaluators_pass_on_recorded_sample_output()
     {
@@ -142,27 +145,18 @@ public sealed class MyAgentEvalTests : IClassFixture<EvalFixture>
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Judged theory — skips cleanly when no model endpoint is configured so CI
-    // doesn't fail when running without credentials.
-    //
-    // Tag a fast subset [Trait("eval","smoke")] (1-2 cases per scenario) for
-    // per-commit runs; leave the full theory for PR-stage / nightly.
-    // -------------------------------------------------------------------------
     [SkippableTheory]
     [MemberData(nameof(Cases))]
     [Trait("eval", "full")]
     public async Task Agent_meets_ground_truth(string caseName)
     {
         Skip.IfNot(_fx.ModelConfigured,
-            "Set AzureAIFoundry:Endpoint/DeploymentName (user secrets or env) to run model-dependent evals.");
+            "Set AZURE_AI_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME to run model-dependent evals.");
 
         var evalCase = LoadCase(caseName);
         var agent = _fx.Services.GetRequiredService<AIAgent>();
 
-        // Scenario and iteration are separate path segments — never join with '/'.
         await using var run = await _fx.Reporting!.CreateScenarioRunAsync(Scenario, iterationName: caseName);
-
         var response = await agent.RunAsync(evalCase.Prompt);
 
         var result = await run.EvaluateAsync(

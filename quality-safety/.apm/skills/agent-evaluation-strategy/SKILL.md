@@ -1,11 +1,11 @@
 ---
 name: agent-evaluation-strategy
-description: Design and scaffold an evaluation suite for a code-first C# agent using Microsoft.Extensions.AI.Evaluation — dataset folder convention, fixture pattern, ground-truth case files, quality evaluators (relevance, coherence, groundedness), custom domain evaluators, and CI wiring. Use this skill when the user asks "how do I test my agent", "set up evals for my MAF agent", "evaluation strategy for a code-first agent", "add an evaluation test project", "score agent outputs against ground truth", or anything about systematic agent quality measurement (as distinct from unit tests).
+description: Design and scaffold evaluation suites for code-first C# agents using Microsoft.Extensions.AI.Evaluation, Microsoft Agent Framework Foundry agents, CI-safe skip-when-unconfigured tests, custom domain evaluators, and judge deployment configuration. Use this skill when the user asks "how do I test my agent", "set up evals for my MAF agent", "evaluation strategy for a code-first agent", "add an evaluation test project", "score agent outputs against ground truth", or anything about systematic agent quality measurement (as distinct from unit tests).
 ---
 
 # Agent Evaluation Strategy
 
-Build an evaluation suite that proves the agent's behaviour, not just that the code compiles. Reference: [references/eval-fixture.cs](references/eval-fixture.cs).
+Build an evaluation suite that proves the agent's behaviour, not just that the code compiles. Keep this skill link-first: use the official [Microsoft.Extensions.AI.Evaluation overview](https://learn.microsoft.com/en-us/dotnet/ai/conceptual/evaluation-libraries) and [reporting tutorial](https://learn.microsoft.com/en-us/dotnet/ai/tutorials/evaluate-with-reporting) for evaluator/reporting API details, then use the local glue fixture for repo-specific conventions: [references/eval-fixture.cs](references/eval-fixture.cs).
 
 ## Unit tests vs evals — pick the right tool
 
@@ -22,19 +22,19 @@ This skill covers **evals**. Tools and orchestrators get plain unit tests in `<A
 
 ```
 tests/<Agent>.Evaluation.Tests/
-├── appsettings.eval.json          # Foundry endpoint, judge deployment (intentionally empty so CI skips model calls)
+├── appsettings.eval.json          # intentionally empty; devs/CI supply env/user secrets
 ├── Datasets/
 │   ├── <scenario>/
-│   │   ├── case-001.json          # simple: all data in one file
+│   │   ├── case-001.json          # simple: prompt/expected/notes in one file
 │   │   └── case-NNN/              # complex: folder-per-case when input is multi-part
-│   │       ├── input.json         #   e.g. PR metadata, changed files
-│   │       ├── build-log.txt      #   auxiliary agent input
-│   │       ├── case.json          #   ground truth (culprit packages, fix files, escalation flag)
-│   │       └── sample-output.json #   recorded good output for the offline deterministic test
+│   │       ├── input.json
+│   │       ├── build-log.txt
+│   │       ├── case.json          # ground truth, never shown to the agent
+│   │       └── sample-output.json # recorded good output for deterministic evaluator tests
 │   └── ...
 ├── Evaluators/                    # custom IEvaluator implementations
 ├── Fixtures/
-│   └── EvalFixture.cs             # shared DI + reporting config (xUnit IClassFixture)
+│   └── EvalFixture.cs             # shared config, agent build-up, reporting config
 └── <Workflow>EvalTests.cs         # one [Theory] per scenario folder
 ```
 
@@ -43,115 +43,71 @@ Why folders for datasets:
 - Adding a case = dropping a file or folder. No code change.
 - CI sees one row per case in the test results.
 
-**Choose flat JSON** when the agent takes a single text prompt and returns text — `{ prompt, expected, notes }`.
-**Choose folder-per-case** when the agent's input is multi-part (structured context, external files, tool call replays). Ground truth (`case.json`) stays separate from the agent-visible input so the evaluators stay generic.
+**Choose flat JSON** when the agent takes a single text prompt and returns text. **Choose folder-per-case** when the input is multi-part (structured context, external files, tool-call replays). Keep ground truth invariant-based (IDs, expected tool use, safety decision, escalation flag), not a verbatim expected answer.
 
-## Case file shape
+## Foundry config and agent-under-test wiring
 
-Flat (simple agents):
+Use the current Foundry project endpoint convention:
 
-```json
-{
-  "prompt": "Summarise PR #42 for me.",
-  "expected": "PR #42 introduces guardrail middleware...",
-  "notes": "Regression for tool-result truncation."
-}
-```
+| Purpose | Config key |
+|---|---|
+| Agent project endpoint | `AZURE_AI_PROJECT_ENDPOINT` |
+| Agent model deployment | `AZURE_AI_MODEL_DEPLOYMENT_NAME` |
+| Judge project endpoint | `Judge:AZURE_AI_PROJECT_ENDPOINT` (or env `Judge__AZURE_AI_PROJECT_ENDPOINT`) |
+| Judge model deployment | `Judge:AZURE_AI_MODEL_DEPLOYMENT_NAME` (or env `Judge__AZURE_AI_MODEL_DEPLOYMENT_NAME`) |
 
-Folder-per-case ground truth (`case.json`):
+The endpoint is the **project endpoint** (`...services.ai.azure.com/api/projects/...`), not an old `/models` inference endpoint. Build the agent-under-test with the [Microsoft Foundry provider](https://learn.microsoft.com/en-us/agent-framework/integrations/by-component/model-providers/microsoft-foundry) pattern: `new AIProjectClient(...).AsAIAgent(model: ..., instructions: ..., tools: ...)`. Do not use `ChatCompletionsClient` for the agent path.
 
-```json
-{
-  "caseId": "case-001",
-  "culpritPackages": [{ "name": "SomePackage", "fromVersion": "2.0", "toVersion": "3.0" }],
-  "fixFiles": ["src/Project/Project.csproj"],
-  "fixSummary": "Remove duplicate registration introduced by v3 of SomePackage.",
-  "expectsEscalation": false
-}
-```
-
-Keep ground truth **invariant-based** (which packages broke, which files change, whether to escalate), not a verbatim expected answer. This makes the eval robust across model versions and agent wording.
-
-For multi-turn cases, an array of `{ role, content }`. For tool-call assertions, an array of expected tool names (`expectedTools: ["GetPullRequest"]`).
+Leave `appsettings.eval.json` empty in the repo so CI skips model calls by default. Developers and scheduled pipelines supply endpoint/deployment values through user secrets or environment variables.
 
 ## Choosing evaluators
 
-Microsoft.Extensions.AI.Evaluation ships quality evaluators you should default to:
-
-| Evaluator | When |
-|---|---|
-| `RelevanceEvaluator` | Did the answer address the question? |
-| `CoherenceEvaluator` | Is the answer well-formed? |
-| `GroundednessEvaluator` | Did the answer stick to retrieved/given context? |
-| `EquivalenceEvaluator` | Does the answer match the expected (semantically, not literally)? |
-| `RetrievalEvaluator` | RAG-only: did retrieval surface the right chunks? |
-
-Custom evaluators (in `Evaluators/`) for domain rules: "did the agent call `GetPullRequest` exactly once?", "did the output JSON parse?", "did the answer name the right work-item id?".
-
-## Reporting & thresholds
-
-Use `DiskBasedReportingConfiguration` — writes structured results to `bin/.../EvalResults/`. The reporting CLI (`dotnet tool install Microsoft.Extensions.AI.Evaluation.Console`) renders a navigable HTML report.
-
-Assertion strategy:
-- **Per-case**: any evaluator returning `Unacceptable` fails the test.
-- **Per-scenario aggregate**: pass-rate ≥ baseline (start at 90%, raise over time).
-- **Regression gate**: in CI, fail if pass-rate drops below the recorded baseline minus a slack (e.g. 5pp). Store baselines in the repo (`Baselines/<scenario>.json`).
+Default to the built-in quality evaluators listed in the official evaluation overview, especially relevance, coherence, groundedness/equivalence for text answers, and the agent-focused tool-call metrics when they fit. Add custom evaluators in `Evaluators/` for domain rules such as:
+- did the agent call `GetPullRequest` exactly once?
+- did the output JSON parse and satisfy the schema?
+- did the answer name the right work item and avoid unsafe remediation?
 
 ## Offline deterministic test (run without a model)
 
-Ground-truth evaluators (custom `IEvaluator` subclasses that compare a parsed output against `case.json`) don't need an LLM. Add a plain `[Fact]` that feeds a recorded `sample-output.json` through the custom evaluators and asserts no `Unacceptable` metric. This:
-- Runs in CI with no credentials and no cost.
-- Validates the evaluators themselves are correctly wired — when a judged run later fails, you can trust the verdict.
-- Catches prompt/parser regressions early.
+Ground-truth evaluators that compare parsed output against `case.json` do not need an LLM. Add a plain `[Fact]` that feeds `sample-output.json` through the custom evaluators and asserts no `Unacceptable` metric. This runs in CI without credentials, validates evaluator wiring, and catches parser/prompt regressions early.
 
-## Skip-when-unconfigured (CI-safe model-dependent tests)
+## Skip-when-unconfigured model tests
 
-Add **Xunit.SkippableFact** (NuGet) so model-dependent tests skip cleanly instead of failing when no endpoint is configured:
+Add [Xunit.SkippableFact](https://www.nuget.org/packages/Xunit.SkippableFact) so model-dependent tests skip cleanly instead of failing when no endpoint is configured:
 
 ```csharp
-[SkippableTheory]
-[MemberData(nameof(Cases))]
-public async Task Agent_meets_ground_truth(string caseName)
-{
-    Skip.IfNot(_fx.ModelConfigured,
-        "Set AzureAIFoundry:Endpoint/DeploymentName to run model-dependent evals.");
-    // ...
-}
+Skip.IfNot(_fx.ModelConfigured,
+    "Set AZURE_AI_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME to run model-dependent evals.");
 ```
 
-`EvalFixture.ModelConfigured` returns `true` only when both endpoint and deployment name are non-empty. Make `Reporting` nullable (`ReportingConfiguration?`) and only build it when configured. Leave `appsettings.eval.json` with an intentionally empty endpoint so CI skips; developers supply the real value via user secrets or environment variables.
+`EvalFixture.ModelConfigured` returns `true` only when the agent endpoint and deployment are non-empty. Make reporting nullable (`ReportingConfiguration?`) and build it only when configured.
 
 ## `CreateScenarioRunAsync` — scenario vs iteration naming
 
 The scenario name and iteration name are separate path segments on disk. **Never combine them with `/`** — the framework rejects path separators and throws `ArgumentException`:
 
 ```csharp
-// Wrong — '/' in scenarioName causes ArgumentException
-await Reporting.CreateScenarioRunAsync("renovate-breaking/case-001");
-
-// Correct — scenario is the folder, iteration is the case
 await Reporting.CreateScenarioRunAsync("renovate-breaking", iterationName: caseName);
 ```
 
 ## CI wiring
 
 - **Per commit (fast)**: smoke subset — 1-2 cases per scenario, tagged `[Trait("eval", "smoke")]`.
-- **Per PR (medium)**: full eval suite, run on a separate ADO stage that doesn't block merge but posts a status check.
-- **Nightly**: full suite + report publish to a known location (blob, ADO artifact, internal site).
+- **Per PR (medium)**: full eval suite, run on a separate stage that posts a status check.
+- **Nightly**: full suite + report publish to a known location (blob, pipeline artifact, internal site).
 
-Eval runs use a **judge model deployment** — keep it separate from the agent's own deployment so you can swap judges without re-deploying the agent. Default the judge to the same deployment during initial setup (`Judge:Endpoint` / `Judge:DeploymentName` config keys that fall back to the agent's own endpoint), then split to a dedicated deployment as usage grows.
+Eval runs use a **judge model deployment**. Default the judge to the same deployment during initial setup, then split to a dedicated deployment as usage grows.
 
 ## Cost control
 
-Evals burn tokens. Defences:
-- Cache LLM responses for the agent-under-test in eval runs (`MEAI.IDistributedCache`-backed `IChatClient` middleware) so re-running the suite is mostly free until you change the agent.
+- Cache LLM responses in eval runs with the reporting library's response caching.
 - Limit `[InlineData]` cases per smoke scenario; full suite gates by PR not commit.
-- Use a dedicated AOAI deployment for evals with its own quota.
+- Use a dedicated judge deployment/quota for evals when volume grows.
 
 ## Hand-off
 
 - Implementing the agent under test -> `maf-csharp-implementation`.
-- The Azure OpenAI judge resource -> `azure-prepare` (one-time).
+- The Azure AI Foundry judge resource -> `azure-prepare` (one-time).
 - Pipeline stage for eval runs -> `azure-devops-pipelines-for-agents`.
 - Token budget concerns -> `azure-aigateway` (semantic caching, token limits).
 
@@ -159,4 +115,5 @@ Evals burn tokens. Defences:
 
 - [Microsoft.Extensions.AI.Evaluation conceptual overview](https://learn.microsoft.com/en-us/dotnet/ai/conceptual/evaluation-libraries)
 - [AI evaluation with reporting (tutorial)](https://learn.microsoft.com/en-us/dotnet/ai/tutorials/evaluate-with-reporting)
+- [Microsoft Foundry model provider for Agent Framework](https://learn.microsoft.com/en-us/agent-framework/integrations/by-component/model-providers/microsoft-foundry)
 - [Xunit.SkippableFact (NuGet)](https://www.nuget.org/packages/Xunit.SkippableFact)

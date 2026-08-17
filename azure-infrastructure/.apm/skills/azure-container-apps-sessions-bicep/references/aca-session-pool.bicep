@@ -52,7 +52,7 @@ param sessionMemory string = '1Gi'
 // "Azure ContainerApps Session Executor" built-in role.
 var sessionExecutorRoleId = '0fb8eba5-a2bb-4abe-b1c1-49dfad359bb0'
 
-resource pool 'Microsoft.App/sessionPools@2024-10-02-preview' = {
+resource pool 'Microsoft.App/sessionPools@2026-01-01' = {
   name: poolName
   location: location
   identity: {
@@ -66,14 +66,23 @@ resource pool 'Microsoft.App/sessionPools@2024-10-02-preview' = {
     poolManagementType: 'Dynamic'
     containerType: 'CustomContainer'
 
+    managedIdentitySettings: [
+      {
+        identity: hostIdentityId
+        lifecycle: 'None'
+      }
+    ]
+
     scaleConfiguration: {
       maxConcurrentSessions: maxConcurrentSessions
       readySessionInstances: readySessionInstances
     }
 
     dynamicPoolConfiguration: {
-      executionType: 'Timed'
-      cooldownPeriodInSeconds: cooldownPeriodInSeconds
+      lifecycleConfiguration: {
+        lifecycleType: 'Timed'
+        cooldownPeriodInSeconds: cooldownPeriodInSeconds
+      }
     }
 
     // No outbound network from the session by default.
@@ -106,7 +115,7 @@ resource pool 'Microsoft.App/sessionPools@2024-10-02-preview' = {
 }
 
 // The HOST identity must be able to allocate/execute sessions on this pool.
-// Without this, the host's Entra token (audience https://dynamicsessions.io) is
+// Without this, the host's Entra token (for the dynamic sessions audience) is
 // rejected. The session itself never receives any token.
 resource sessionExecutor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(pool.id, hostIdentityPrincipalId, sessionExecutorRoleId)
@@ -124,3 +133,4 @@ output poolManagementEndpoint string = pool.properties.poolManagementEndpoint
 
 @description('For diagnostic settings / further role assignments.')
 output sessionPoolId string = pool.id
+

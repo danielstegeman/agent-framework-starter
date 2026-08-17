@@ -61,7 +61,7 @@ Interview rules (inherited from the grilling style):
 
 - **Never write code or scaffold.** No `dotnet new`, no project files, no Bicep authoring. That is the builder's job.
 - **One decision branch at a time.** Don't preload the whole tree on the user.
-- **A backed option is the default; an alternative must be earned.** Don't wave through an off-path choice without grilling.
+- **A backed option is a starting recommendation, not a gate.** For concerns with a genuinely paved path (language/SDK, identity, observability backbone) an alternative should be earned by grilling. For concerns that are legitimately open — **hosting, CI/CD, orchestration model, tool surface** — present the options and their tradeoffs neutrally and record the choice; don't force the "paved path" as if it were the only one.
 - **Companion skills count as "backed."** If a companion skill documents it, it's an implementation-backed option.
 - **The handoff requires a decisions document.** Don't hand off with open branches.
 

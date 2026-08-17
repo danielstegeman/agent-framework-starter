@@ -1,29 +1,29 @@
 ---
 name: foundry-model-deployment
-description: Provision an Azure AI Foundry resource (AIServices-kind account + project + model deployment) for use with a code-first agent. Produces infra/azure-ai-foundry.bicep. Run this when no Foundry model deployment exists yet, or when adding a new model deployment for a new agent. The Bicep can be deployed as a one-time manual step or promoted into the CI/CD pipeline. Use when the user asks "provision a Foundry model", "set up Azure AI Foundry", "deploy a model", "I need a model endpoint for my agent", "create a model deployment", "add a model", or any equivalent. Part of the agent-framework-starter infrastructure phase.
+description: Provision an Azure AI Foundry resource (AIServices-kind account + project + model deployment) for use with a code-first agent. Produces infra/azure-ai-foundry.bicep and outputs the Foundry project endpoint plus model deployment name for `AZURE_AI_PROJECT_ENDPOINT` / `AZURE_AI_MODEL_DEPLOYMENT_NAME`. Run this when no Foundry project/model deployment exists yet, or when adding a new model deployment for a new agent. The Bicep can be deployed as a one-time manual step or promoted into the CI/CD pipeline. Use when the user asks "provision a Foundry model", "set up Azure AI Foundry", "deploy a model", "I need a model endpoint for my agent", "create a model deployment", "add a model", or any equivalent. Part of the agent-framework-starter infrastructure phase.
 ---
 
 # Foundry Model Deployment
 
-Provisions an **Azure AI Foundry** resource — an `AIServices`-kind Cognitive Services account, a Foundry project, and a model deployment — and outputs the model inference endpoint and deployment name that the agent reads from config.
+Provisions an **Azure AI Foundry** resource — an `AIServices`-kind Cognitive Services account, a Foundry project, and a model deployment — and outputs the **project endpoint** and deployment name that the agent reads from config.
 
 Reference template: [references/azure-ai-foundry.bicep](references/azure-ai-foundry.bicep).
 
 ## When to use
 
-- **New agent project** — no Azure AI Foundry resource exists yet.
-- **Adding a new agent** to an existing solution that needs its own model or a different model.
-- **Changing the model** on an existing deployment (update `modelName`, `modelVersion`, or `capacityTpu` and re-deploy — the deployment re-deploy is idempotent; it updates capacity and model version in place).
+- **New agent project** — no Azure AI Foundry resource/project exists yet.
+- **Adding a new agent** to an existing solution that needs its own model or a different model deployment.
+- **Changing the model** on an existing deployment (update `modelPublisher`, `modelName`, `modelVersion`, `deploymentName`, or `capacityTpu` and re-deploy — the deployment re-deploy is idempotent; it updates capacity and model version in place).
 
-**Skip this skill entirely** if you already have a Foundry project endpoint and a model deployment name. Just record those values in the decisions document as `AzureAIFoundry__Endpoint` and `AzureAIFoundry__DeploymentName` and proceed.
+**Skip this skill entirely** if you already have a Foundry project endpoint and a model deployment name. Record those values in the decisions document as `AZURE_AI_PROJECT_ENDPOINT` and `AZURE_AI_MODEL_DEPLOYMENT_NAME` and proceed.
 
 ## Why `AIServices`, not `OpenAI`
 
 An `OpenAI`-kind resource only exposes OpenAI models via the Azure OpenAI endpoint. An `AIServices`-kind resource:
 
-- Exposes **all Foundry catalog models** — OpenAI GPT, Microsoft Phi, Meta Llama, Mistral, and any other publisher in the catalog.
-- Provides the **Azure AI Model Inference API** (`/models` endpoint) — a single endpoint that routes to any deployed model by deployment name.
-- Supports **Foundry platform features** — Foundry projects, Agents Service, AI Search integration.
+- Supports Foundry projects and current Agent Framework project-endpoint wiring.
+- Can host model deployments from the Foundry catalog, subject to regional/catalog availability and quota.
+- Keeps the app configuration model-agnostic: the agent receives a project endpoint and deployment name, not provider-specific client keys.
 
 Use `OpenAI` kind only if you have an existing AOAI resource you cannot migrate. Record that as an alternative in the decisions document.
 
@@ -33,20 +33,23 @@ Use `OpenAI` kind only if you have an existing AOAI resource you cannot migrate.
 |---|---|---|
 | `accountName` | — | Cognitive Services account name + DNS subdomain. Kebab-case, globally unique. |
 | `projectName` | `${accountName}-project` | Foundry project scoped under the account. |
-| `resourceGroup` | — | Should match the hosting environment's resource group. |
-| `location` | RG location | Same region as Container Apps to minimise latency and cross-region egress cost. |
-| `modelPublisher` | `OpenAI` | Publisher name as shown in the Foundry catalog (e.g. `OpenAI`, `Microsoft`, `Meta`). This is the `format` field in the deployment Bicep. |
-| `modelName` | `gpt-4o` | Model name as shown in the Foundry catalog. Also used as the deployment name. |
-| `modelVersion` | `2025-04-14` | Exact version string. Check the Foundry portal for available versions. |
-| `capacityTpu` | `10` | Thousands of tokens per minute. 10 = 10k TPM. Start low; increase if throttled. |
+| `resourceGroup` | — | Should match the hosting environment's resource group unless Foundry is centrally managed. |
+| `location` | RG location | Prefer the same region as the host to minimise latency and cross-region egress cost. |
+| `modelPublisher` | — | Publisher name as shown in the Foundry catalog (for example `OpenAI`, `Microsoft`, or `Meta`). This is the `format` field in the deployment Bicep. |
+| `modelName` | — | Model name as shown in the Foundry catalog. Keep this model-agnostic in docs; choose an approved deployment at implementation time. |
+| `deploymentName` | `modelName` | Deployment name the app uses as `AZURE_AI_MODEL_DEPLOYMENT_NAME`. Override if your deployment naming standard differs from the catalog model name. |
+| `modelVersion` | — | Exact version string from the Foundry portal/catalog for the selected model. |
+| `capacityTpu` | `10` | Thousands of tokens per minute. Start low; increase if throttled. |
 
 ## What gets created
 
 `infra/azure-ai-foundry.bicep` deploying:
 
-- **Foundry account** (`Microsoft.CognitiveServices/accounts@2025-06-01`, kind `AIServices`) — with `disableLocalAuth: true` (keyless only) and `allowProjectManagement: true`.
-- **Foundry project** (`Microsoft.CognitiveServices/accounts/projects@2025-06-01`) — scoped under the account.
-- **Model deployment** (`Microsoft.CognitiveServices/accounts/deployments@2025-06-01`) — `GlobalStandard` SKU, capacity in TPU, model identified by publisher (`format`) + name + version.
+- **Foundry account** (`Microsoft.CognitiveServices/accounts`, kind `AIServices`) — with `disableLocalAuth: true` (keyless only) and `allowProjectManagement: true`.
+- **Foundry project** (`Microsoft.CognitiveServices/accounts/projects`) — scoped under the account.
+- **Model deployment** (`Microsoft.CognitiveServices/accounts/deployments`) — `GlobalStandard` SKU, capacity in TPU, model identified by publisher (`format`) + name + version.
+
+The reference Bicep uses current stable Cognitive Services API versions verified against the Microsoft.CognitiveServices/accounts template documentation.
 
 ## Deployment options
 
@@ -61,42 +64,42 @@ az deployment group create \
   --parameters \
       accountName=<name> \
       projectName=<project> \
-      modelPublisher=OpenAI \
-      modelName=gpt-4o \
-      modelVersion=2025-04-14 \
+      modelPublisher=<publisher> \
+      modelName=<model-name> \
+      deploymentName=<deployment-name> \
+      modelVersion=<model-version> \
       capacityTpu=10
 ```
 
-Requires `Cognitive Services Contributor` (or `Owner`) on the resource group. The **deploy pipeline does not need this permission**.
+Requires `Cognitive Services Contributor` (or a custom least-privilege equivalent) on the resource group. The **app deploy pipeline does not need this permission** unless you intentionally choose Option B.
 
 ### Option B — CI/CD pipeline stage (managed path)
 
-Add an `infra-deploy` stage to `azure-pipelines.yml` that runs `az deployment group create` for `azure-ai-foundry.bicep` before the app deploy stage. Use `--mode Incremental` — the resource re-deploy and deployment re-deploy are both idempotent and safe to run on every merge.
+Add an infra stage to the selected CI/CD system that runs `az deployment group create` for `azure-ai-foundry.bicep` before the app deploy stage. Use incremental deployment — the resource re-deploy and deployment re-deploy are idempotent and safe to run on every merge.
 
-Grant the ADO service connection `Cognitive Services Contributor` on the resource group. See `azure-devops-pipelines-for-agents` for the pipeline scaffolding.
+Grant the deployer `Cognitive Services Contributor` on the resource group. See `azure-devops-pipelines-for-agents` for the ADO pipeline scaffolding; GitHub Actions can run the same Azure CLI command with federated login.
 
 Prefer Option B when:
 - Model versions or capacity need to be updated as part of a code merge.
 - You want model deployment changes tied to commits and reviewed as code.
-- Multiple environments (dev / test / prod) must stay in sync on model version.
+- Multiple environments (dev / test / prod) must stay in sync on model selection.
 
 ## Outputs
 
 Record these values after deployment:
 
-| Output | Config key | Example value |
+| Output | Config key / env var | Example value |
 |---|---|---|
-| `modelsEndpoint` | `AzureAIFoundry__Endpoint` | `https://<account>.services.ai.azure.com/models` |
-| `deploymentName` | `AzureAIFoundry__DeploymentName` | `gpt-4o` |
+| `projectEndpoint` | `AZURE_AI_PROJECT_ENDPOINT` | `https://<account>.services.ai.azure.com/api/projects/<project>` |
+| `deploymentName` | `AZURE_AI_MODEL_DEPLOYMENT_NAME` | `<deployment-name>` |
 
-These become environment variables in Container Apps (see `azure-container-apps-bicep`) and go in `appsettings.json` for local development.
+These become environment variables in Container Apps (see `azure-container-apps-bicep`) and local user secrets or appsettings for local development. Do not use legacy inference endpoints or legacy Foundry config keys for new Agent Framework wiring.
 
 ## Required RBAC
 
-The UAMI provisioned by `azure-container-apps-bicep` needs:
-- **`Cognitive Services User`** on the Foundry account — to call the model inference API.
+The workload identity used by the host needs a least-privilege data-plane role on the Foundry account/project, commonly **`Cognitive Services User`** on the Foundry account for project/model access. Use `azure-rbac` to confirm the narrowest role for the exact provider features and tools.
 
-Put this in `infra/rbac.bicep` alongside the existing `AcrPull` and `Key Vault Secrets User` assignments. Deploy `rbac.bicep` once with elevated permissions; it does not need to re-run on every deploy.
+Put this in `infra/rbac.bicep` alongside the existing `AcrPull` and `Key Vault Secrets User` assignments. Deploy `rbac.bicep` once with elevated permissions; it does not need to re-run on every app deploy.
 
 ```bicep
 // In infra/rbac.bicep — add alongside existing assignments
@@ -117,13 +120,13 @@ resource foundryRbac 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 
 ## Local development
 
-For local dev, `DefaultAzureCredential` uses the signed-in `az login` identity. Grant your developer identity the **`Cognitive Services User`** role on the Foundry account.
+For local dev, `DefaultAzureCredential` uses the signed-in `az login` identity. Grant your developer identity the same data-plane role on the Foundry account/project.
 
-Add the inference endpoint and deployment name to user secrets:
+Add the project endpoint and deployment name to user secrets:
 
 ```bash
-dotnet user-secrets set "AzureAIFoundry:Endpoint" "https://<account>.services.ai.azure.com/models"
-dotnet user-secrets set "AzureAIFoundry:DeploymentName" "gpt-4o"
+dotnet user-secrets set "AZURE_AI_PROJECT_ENDPOINT" "https://<account>.services.ai.azure.com/api/projects/<project>"
+dotnet user-secrets set "AZURE_AI_MODEL_DEPLOYMENT_NAME" "<deployment-name>"
 ```
 
 ## Finding model publisher, name, and version
@@ -145,6 +148,10 @@ az cognitiveservices account deployment list \
 ## Official Documentation
 
 - [Azure AI Foundry overview](https://learn.microsoft.com/en-us/azure/ai-foundry/what-is-azure-ai-foundry)
-- [Azure AI Foundry model catalog](https://learn.microsoft.com/en-us/azure/ai-foundry/concepts/model-catalog)
-- [Azure AI Model Inference API](https://learn.microsoft.com/en-us/azure/ai-foundry/reference/reference-model-inference-api)
+- [Foundry Agent Service overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+- [Foundry Models sold by Azure](https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/models-sold-directly-by-azure)
 - [Microsoft.CognitiveServices/accounts Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.cognitiveservices/accounts)
+- [Microsoft.CognitiveServices/accounts/projects Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.cognitiveservices/accounts/projects)
+- [Microsoft.CognitiveServices/accounts/deployments Bicep reference](https://learn.microsoft.com/en-us/azure/templates/microsoft.cognitiveservices/accounts/deployments)
+
+

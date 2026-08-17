@@ -1,0 +1,15 @@
+name: maf-core
+version: 0.2.0
+description: >-
+  Core Microsoft Agent Framework skills — the parts that ARE the framework
+  itself: C# agent implementation patterns (AIProjectClient.AsAIAgent, tools,
+  instructions, sessions, middleware, structured output, native OpenTelemetry),
+  graph workflows and multi-agent orchestration, and MCP tool surfaces. Everything
+  else in this starter (bootstrap, hosting, Azure infrastructure, evaluation,
+  guardrails) is additive architecture layered around this core.
+author: code-first-agent-starter
+includes: auto
+dependencies:
+  apm: []
+  mcp: []
+scripts: {}

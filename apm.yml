@@ -1,16 +1,20 @@
 name: code-first-agent-starter
 version: 0.2.0
 description: >-
-  Curated aggregator for building a code-first AI agent end-to-end. Composes four
-  focused sub-packages — agent-design (architecture decisions, sandboxing, the
-  architect agent), dotnet-implementation (MAF scaffolding, patterns, Aspire, the
-  builder agent), azure-infrastructure (Container Apps, Bicep, ADO pipelines,
-  identity), and quality-safety (evaluation, guardrails).
+  Curated aggregator for building a code-first AI agent end-to-end. Composes five
+  focused sub-packages — maf-core (the Microsoft Agent Framework itself: C#
+  implementation patterns, workflows/orchestration, MCP tools), and four additive
+  layers that complete a solution around it: agent-design (architecture decisions,
+  sandboxing, the architect agent), dotnet-implementation (bootstrap, hosting, C#
+  sandbox, the builder agent), azure-infrastructure (Container Apps, Bicep, ADO
+  pipelines, identity), and quality-safety (evaluation, guardrails).
 author: code-first-agent-starter
 # Curated aggregator: each sub-package is independently installable and owns its
-# own apm.yml + .apm/ tree. Installing this root pulls all four.
+# own apm.yml + .apm/ tree. `maf-core` is the framework itself; the rest are
+# additive architecture layered around it. Installing this root pulls all five.
 dependencies:
   apm:
+    - danielstegeman/agent-framework-starter/maf-core
     - danielstegeman/agent-framework-starter/agent-design
     - danielstegeman/agent-framework-starter/dotnet-implementation
     - danielstegeman/agent-framework-starter/azure-infrastructure

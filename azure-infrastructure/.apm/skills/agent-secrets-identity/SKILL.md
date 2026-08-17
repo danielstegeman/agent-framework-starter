@@ -1,51 +1,71 @@
 ---
 name: agent-secrets-identity
-description: Configure identity, authentication, and secret management for a code-first agent — `DefaultAzureCredential` for local dev + managed identity in Azure, user-assigned managed identity for the workload, Key Vault references vs runtime SDK lookups, On-Behalf-Of (OBO) flow when the agent acts as the user, and workload identity federation for the ADO/GitHub deployer. Use this skill when the user asks "how do I authenticate my agent", "set up managed identity for my MAF agent", "Key Vault for my agent", "agent should act on behalf of the user", "OBO flow", "workload identity federation for my pipeline", or anything about agent auth / secrets architecture.
+description: Configure identity, authentication, and secret management for a code-first agent across hosting options — `DefaultAzureCredential` for local dev + managed identity in Azure, user-assigned managed identity for self-hosted workloads, Key Vault references vs runtime SDK lookups, Azure AI Foundry project endpoint configuration, On-Behalf-Of (OBO) flow when the agent acts as the user, and workload identity federation for ADO or GitHub deployers. Use this skill when the user asks "how do I authenticate my agent", "set up managed identity for my MAF agent", "Key Vault for my agent", "agent should act on behalf of the user", "OBO flow", "workload identity federation for my pipeline", or anything about agent auth / secrets architecture.
 ---
 
 # Agent Secrets & Identity
 
-Three identities are at play in a code-first agent system. Get them right once and you never deal with secret rotation again.
+Three identities are common in a code-first agent system. Get them right once and you avoid secret rotation for the agent itself.
+
+## Hosting and pipeline options
+
+Identity guidance applies across hosting choices, but the amount of infrastructure differs:
+
+- **Foundry Hosted Agents**: managed runtime; use Foundry/Entra identity controls and skip most Container Apps/ACR wiring.
+- **Azure Container Apps**: recommended self-hosting option in this repo; use UAMI, Key Vault references, and ACR pull identity.
+- **App Service / Azure Functions**: valid self-hosting alternatives; use the same managed identity and Key Vault principles.
+- **Azure DevOps or GitHub Actions**: both should authenticate to Azure with workload identity federation, never stored client secrets.
 
 ## The three identities
 
 | | Who | What it can do | Credential |
 |---|---|---|---|
 | **Developer** | A human running the agent locally | Read dev resources; impersonate dev MI optionally | `az login` -> `DefaultAzureCredential` |
-| **Workload** | The deployed agent process | Talk to Azure OpenAI, Key Vault, downstream APIs | **User-assigned managed identity** attached to the host |
-| **Deployer** | The ADO/GitHub pipeline | Push images, deploy Bicep, set up RBAC | **Workload identity federation** (no secrets) |
+| **Workload** | The deployed agent process | Talk to Azure AI Foundry, Key Vault, downstream APIs | **User-assigned managed identity** attached to the host, unless using a managed hosted-agent runtime |
+| **Deployer** | The ADO/GitHub pipeline | Push images, deploy Bicep, set up environment resources | **Workload identity federation** (no secrets) |
 
 There are **no service principal client secrets** in this architecture. If one appears, it's a regression.
 
 ## Workload identity (the agent at runtime)
 
-Always **user-assigned managed identity**, not system-assigned. Reasons:
-- Survives app recreation (e.g. swapping Container Apps revisions cleanly across blue/green).
+For self-hosted Azure workloads, prefer **user-assigned managed identity**, not system-assigned. Reasons:
+- Survives app recreation.
 - Can be granted RBAC before the app exists.
 - Can be shared across multiple replicas / regions of the same logical agent.
 
-In C#, every Azure SDK client takes a `TokenCredential`. Always pass `new DefaultAzureCredential()` — it transparently uses:
+In C#, every Azure SDK client takes a `TokenCredential`. Pass `new DefaultAzureCredential()` — it transparently uses:
 - The UAMI in Azure (via `AZURE_CLIENT_ID` env var).
 - The developer's `az login` locally.
 - Visual Studio / VS Code creds in IDE scenarios.
 
 ```csharp
-var openAi = new AzureOpenAIClient(new Uri(endpoint), new DefaultAzureCredential());
-var kv     = new SecretClient(new Uri(kvUri),         new DefaultAzureCredential());
+var project = new AIProjectClient(new Uri(projectEndpoint), new DefaultAzureCredential());
+var kv      = new SecretClient(new Uri(kvUri),           new DefaultAzureCredential());
 ```
 
-Set `AZURE_CLIENT_ID` on the container so `DefaultAzureCredential` picks the *user-assigned* identity (without this, on a container with multiple identities, the SDK is ambiguous).
+Set `AZURE_CLIENT_ID` on self-hosted containers so `DefaultAzureCredential` picks the *user-assigned* identity. Without this, a host with multiple identities is ambiguous.
+
+## Azure AI Foundry configuration
+
+New MAF wiring uses the **Foundry project endpoint**, not the older model-inference endpoint convention:
+
+| Setting | Example |
+|---|---|
+| `AZURE_AI_PROJECT_ENDPOINT` | `https://<svc>.services.ai.azure.com/api/projects/<project>` |
+| `AZURE_AI_MODEL_DEPLOYMENT_NAME` | `<deployment-name>` |
+
+These values are configuration, not secrets. Put them in Container Apps env vars, App Service app settings, Functions app settings, ADO variable groups, GitHub environment variables, or local user secrets as appropriate.
 
 ## Key Vault references vs runtime SDK lookups
 
-Two ways to give the container a secret:
+Two ways to give the runtime a secret:
 
 | | When |
 |---|---|
-| **Container Apps secret with `keyVaultUrl`** (Bicep `secrets[].keyVaultUrl + identity`) | Default. The platform resolves the secret at app start and exposes it as `secretRef` env var. No SDK code. |
+| **Platform secret reference** (for example Container Apps `secrets[].keyVaultUrl + identity`) | Default for deployment-time values. The platform resolves the secret at app start and exposes it as an env var. No SDK code. |
 | **Runtime `SecretClient.GetSecretAsync(...)`** | The secret can rotate without restart, or you need many secrets keyed dynamically. |
 
-Use Container Apps secret refs for the App Insights connection string and any "set once at deploy" secret. Use the SDK only when rotation-without-restart matters.
+Use platform secret refs for the App Insights connection string and any "set once at deploy" secret. Use the SDK only when rotation-without-restart matters.
 
 Never put secret values in `appsettings.json`, even with `#{}` tokens replaced in the pipeline.
 
@@ -81,12 +101,12 @@ Use OBO sparingly — it shifts the trust model from "agent is trusted" to "agen
 The ADO/GitHub pipeline needs Azure access to deploy. **Workload identity federation**:
 
 - ADO: create the service connection with "Workload Identity federation (automatic)" — ADO mints a federated credential against an app registration tied to that connection.
-- GitHub Actions: configure `azure/login@v2` with federated credentials, no client secret.
+- GitHub Actions: configure `azure/login` with federated credentials, no client secret.
 
 The federated service principal needs scope-appropriate roles:
 - `Contributor` on the RG (for Bicep deploys).
-- `AcrPush` on the registry.
-- **Not** `Owner` — `Owner` lets the pipeline change RBAC, which is a privilege escalation path. RBAC should be assigned by a separate one-time process (see below).
+- `AcrPush` on the registry when pushing images.
+- **Not** `Owner` — `Owner` lets the pipeline change RBAC, which is a privilege escalation path. RBAC should be assigned by a separate one-time process.
 
 ## RBAC bootstrapping
 
@@ -94,7 +114,7 @@ Separate `rbac.bicep` deployed once per environment by a privileged identity (a 
 
 | Identity | Scope | Role |
 |---|---|---|
-| Workload UAMI | Azure OpenAI | `Cognitive Services OpenAI User` |
+| Workload UAMI | Azure AI Foundry / model provider | Least-privilege data-plane role, commonly `Cognitive Services User` for Foundry account access or provider-specific equivalent |
 | Workload UAMI | Key Vault | `Key Vault Secrets User` |
 | Workload UAMI | ACR | `AcrPull` |
 | Workload UAMI | Dynamic-sessions pool (if the agent runs model-generated code) | `Azure ContainerApps Session Executor` |
@@ -107,11 +127,10 @@ After bootstrap, the deploy pipeline never touches RBAC. Hand off to `azure-rbac
 
 When the agent executes model-generated code in an Azure Container Apps dynamic-sessions pool (see `agent-sandboxing`, `azure-container-apps-sessions-bicep`), the identity split is:
 
-- **The host's workload UAMI** holds `Azure ContainerApps Session Executor` on the pool and calls the management API with a `DefaultAzureCredential` token whose audience is `https://dynamicsessions.io`. Only the host talks to the pool.
+- **The host's workload UAMI** holds `Azure ContainerApps Session Executor` on the pool and calls the management API with a `DefaultAzureCredential` token for the dynamic sessions audience. Only the host talks to the pool.
 - **The session is credential-less.** Do **not** enable a managed identity *inside* the session — that would hand cloud credentials to attacker-controllable, model-generated code. The pool's own identity is used solely to pull the session image from ACR (`AcrPull`), never injected into the running session.
 
 This keeps the blast radius of a prompt-injection-driven code path to the sandbox itself.
-
 
 ## Local dev
 
@@ -120,25 +139,25 @@ This keeps the blast radius of a prompt-injection-driven code path to the sandbo
 - The developer needs the same data-plane roles the workload UAMI has — usually grant them via an Entra group ("agent-dev").
 - For secrets, the developer can either:
   - Read from the dev Key Vault using their own KV-Secrets-User role (no local secrets file), OR
-  - Use `dotnet user-secrets` for things that shouldn't touch Azure (rare).
+  - Use `dotnet user-secrets` for non-production local overrides.
 
-`appsettings.Development.json` holds non-secret per-dev overrides (e.g. a personal AOAI endpoint).
+`appsettings.Development.json` holds non-secret per-dev overrides such as a personal Foundry project endpoint.
 
 ## What goes where — quick reference
 
 | Thing | Lives in |
 |---|---|
-| Azure OpenAI endpoint URL | App setting (env var). |
-| Azure OpenAI deployment name | App setting. |
-| App Insights connection string | Key Vault, surfaced as Container Apps secret ref. |
-| Downstream API key (legacy auth) | Key Vault, surfaced as Container Apps secret ref. |
+| Azure AI project endpoint URL | App setting / env var `AZURE_AI_PROJECT_ENDPOINT`. |
+| Model deployment name | App setting / env var `AZURE_AI_MODEL_DEPLOYMENT_NAME`. |
+| App Insights connection string | Key Vault, surfaced as platform secret ref. |
+| Downstream API key (legacy auth) | Key Vault, surfaced as platform secret ref. |
 | OAuth client secret for downstream OBO | **Doesn't exist.** Use federated credential to workload MI. |
 | Storage account connection string | **Doesn't exist.** Use the storage SDK with `DefaultAzureCredential`. |
 
 ## Hand-off
 
-- Bicep that creates UAMI + KV refs -> `azure-container-apps-bicep`.
-- Pipeline service connection with WIF -> `azure-devops-pipelines-for-agents`.
+- Bicep that creates UAMI + KV refs -> `azure-container-apps-bicep` when ACA is the selected host.
+- Pipeline service connection with WIF -> `azure-devops-pipelines-for-agents` for ADO, or GitHub Actions equivalent.
 - App registration for OBO -> `entra-app-registration`.
 - Picking specific RBAC roles -> `azure-rbac`.
 - Dynamic-sessions pool + the Session Executor role assignment -> `azure-container-apps-sessions-bicep`.
@@ -157,3 +176,9 @@ This keeps the blast radius of a prompt-injection-driven code path to the sandbo
 
 **Secrets management**
 - [Azure Container Apps secret management (Key Vault references)](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets)
+
+**Hosting**
+- [Agent Framework hosting overview](https://learn.microsoft.com/en-us/agent-framework/hosting/)
+- [Foundry Agent Service overview](https://learn.microsoft.com/en-us/azure/foundry/agents/overview)
+
+

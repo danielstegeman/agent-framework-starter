@@ -20,7 +20,7 @@ Install the [APM CLI](https://microsoft.github.io/apm/), then in any project whe
 apm install <owner>/code-first-agent-starter
 ```
 
-This curated aggregator pulls all four sub-packages (`agent-design`, `dotnet-implementation`, `azure-infrastructure`, `quality-safety`) — both agents and all skills. Open a fresh Copilot Chat or Claude conversation in that workspace.
+This curated aggregator pulls all five sub-packages (`maf-core`, `agent-design`, `dotnet-implementation`, `azure-infrastructure`, `quality-safety`) — both agents and all skills. Open a fresh Copilot Chat or Claude conversation in that workspace.
 
 ## The journey
 
@@ -36,11 +36,11 @@ The **`agent-architect`** picks up the request, confirms the Azure extensions ar
 The architect proposes only **implementation-backed** options and grills you on any alternative. You're walked through:
 - **Trigger model**: webhook from ADO on work-item update + a CLI for testing.
 - **Observability**: OTel -> App Insights (prod), Aspire dashboard (local).
-- **Hosting**: Azure Container Apps, public ingress (backed default — accepted).
-- **Tools**: in-process tools class talking to ADO REST API (backed default).
+- **Hosting**: Azure Container Apps, public ingress (recommended starting point — chosen after comparing App Service / Functions / Foundry Hosted Agents).
+- **Tools**: in-process tools class talking to ADO REST API (recommended — an MCP tool surface was considered and deferred).
 - **Context sources**: tool-fetched only — no RAG.
 - **Sandbox**: the agent runs no model-generated code — recorded as "no execution".
-- **Flexibility vs determinism**: single agent, one tool call per run, no orchestrator.
+- **Flexibility vs determinism**: single agent, one tool call per run — no workflow/orchestrator needed yet.
 - **Guardrails**: PII redaction on the work-item body before it hits the model.
 - **Identity**: UAMI for the workload, federated MI for the ADO pipeline.
 
@@ -59,10 +59,10 @@ mkdir work-item-summariser && cd work-item-summariser
 
 The bootstrap skill runs:
 - `dotnet new sln -n WorkItemSummariser`
-- Creates `Host`, `WorkItemSummariser`, `WorkItemSummariser.Tools.AzureDevOps`, `Tests`, `Evaluation.Tests`, `AppHost`.
-- Adds packages (`Microsoft.Agents.AI`, `Azure.AI.Inference`, `Microsoft.Extensions.AI.AzureAIInference`, `Azure.Identity`, OTel + Azure Monitor exporter, etc.).
+- Creates a `Host` project and a `WorkItemSummariser` agent library (plus `Tests`, `Evaluation.Tests`, `AppHost`). Start minimal — split tools into their own project or adopt per-agent slices later only if the solution grows to need it.
+- Adds packages: `Microsoft.Agents.AI` (GA), `Microsoft.Agents.AI.Foundry` + `Azure.AI.Projects` (`--prerelease`), `Azure.Identity`, OTel + Azure Monitor exporter.
 - Writes `Directory.Build.props`, `global.json`, `.editorconfig`, `.gitignore`.
-- Copies the patterns from `references/builder-and-tools.cs`, `instructions-embedded.cs`, `otel-azuremonitor.cs` into the right projects, renaming types.
+- Follows the current patterns from the [Microsoft Agent Framework get-started docs](https://learn.microsoft.com/en-us/agent-framework/get-started/your-first-agent) — the agent is created from `AIProjectClient.AsAIAgent(...)`, with telemetry via native `.UseOpenTelemetry()` / `.WithOpenTelemetry()`.
 - Runs `dotnet build && dotnet test` — both green.
 - `git init -b main && git add . && git commit -m "chore: scaffold via dotnet-agent-bootstrap"`.
 
@@ -73,14 +73,16 @@ dotnet run --project src/WorkItemSummariser.Host -- "Hello!"
 
 ### 3. Add the real tool (`maf-csharp-implementation`)
 
-The implementation skill explains the tools-project pattern. You author `WorkItemTools.GetWorkItem(int id, ...)` with `[Description]` attributes. Register in `ServiceCollectionExtensions` of the tools project. Update the agent's `AddTools` reflection list automatically picks it up. Add `Instructions/Summariser.md` describing the persona.
+The implementation skill shows how to author in-process function tools. You write `WorkItemTools.GetWorkItem(int id, ...)` with `[Description]` attributes and register the tool with the agent. (Keep tools in the agent project to start; move them into a dedicated tools project only when more than one agent shares them. If you'd rather expose tools over a protocol, see `maf-mcp-tools`.) Add `Instructions/Summariser.md` describing the persona.
 
 ```bash
 dotnet test            # still green
 dotnet run --project src/WorkItemSummariser.Host -- "Summarise work item 12345"
 ```
 
-### 4. Local dev with Aspire (`dotnet-aspire-apphost`)
+> Coordinating several agents or a fixed multi-step flow later? `maf-workflows-orchestration` covers graph workflows and the sequential/concurrent/handoff/group-chat/magentic patterns.
+
+### 4. Local dev with Aspire + DevUI (`dotnet-aspire-apphost`)
 
 ```bash
 dotnet new aspire-apphost -n WorkItemSummariser.AppHost -o src/WorkItemSummariser.AppHost
@@ -88,7 +90,7 @@ dotnet sln add src/WorkItemSummariser.AppHost
 dotnet add src/WorkItemSummariser.AppHost reference src/WorkItemSummariser.Host
 ```
 
-`AppHost/Program.cs` declares the host project. F5 in VS now opens the Aspire dashboard with live OTel traces — including a span per tool call.
+`AppHost/Program.cs` declares the host project. F5 in VS opens the Aspire dashboard with live OTel traces — a span per tool call. DevUI gives you an interactive chat surface to exercise the agent locally.
 
 ### 5. Model deployment (`foundry-model-deployment`)
 
@@ -103,21 +105,20 @@ az deployment group create \
   --parameters \
       accountName=work-item-summariser-ai \
       modelPublisher=OpenAI \
-      modelName=gpt-4o \
-      modelVersion=2025-04-14 \
+      modelName=<model-deployment> \
       capacityTpu=10
 ```
 
 Record the outputs for use in the next step and in local `appsettings.Development.json`:
-- `modelsEndpoint` → `AzureAIFoundry__Endpoint`
-- `deploymentName` → `AzureAIFoundry__DeploymentName`
+- `projectEndpoint` → `AZURE_AI_PROJECT_ENDPOINT` (`https://<account>.services.ai.azure.com/api/projects/<project>`)
+- `deploymentName` → `AZURE_AI_MODEL_DEPLOYMENT_NAME`
 
 Grant your developer identity (and later the UAMI) `Cognitive Services User` on the Foundry account.
 
 ### 6. Infrastructure (`agent-infrastructure-overview` → leaves)
 
 Walk the 10-item checklist. Then:
-- `foundry-model-deployment` was completed in step 5 above — pass its outputs to `azure-container-apps-bicep` as `foundryEndpoint` and `foundryDeploymentName`.
+- `foundry-model-deployment` was completed in step 5 above — pass its outputs to `azure-container-apps-bicep` as `AZURE_AI_PROJECT_ENDPOINT` and `AZURE_AI_MODEL_DEPLOYMENT_NAME` container env vars.
 - `azure-container-apps-bicep` produces `infra/container-apps.bicep` + `infra/rbac.bicep` (include `Cognitive Services User` assignment for the UAMI on the Foundry account).
 - `azure-devops-pipelines-for-agents` produces `azure-pipelines.yml`.
 - `agent-secrets-identity` makes sure the UAMI exists, the federated service connection is wired, and the App Insights connection string is in Key Vault.

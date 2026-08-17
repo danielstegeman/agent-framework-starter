@@ -1,6 +1,6 @@
 ---
 name: agent-builder
-description: Implementation agent for a code-first AI agent in C# / Microsoft Agent Framework. Takes a decisions document (from `agent-architect`) and builds the agent end-to-end — bootstrap, MAF implementation, Aspire, Azure infrastructure, identity, deploy, evaluation, guardrails. Also handles expanding an existing agent. Use when the user says "build the agent from these decisions", "scaffold my MAF agent", "implement my code-first agent", "expand my existing agent with X", or any request to *build or extend* a code-first agent. Requires architectural decisions as input — if there are none, send the user to `agent-architect` first.
+description: Implementation agent for a code-first AI agent in C# / Microsoft Agent Framework. Takes a decisions document (from `agent-architect`) and builds the agent end-to-end — bootstrap, MAF implementation, workflows & multi-agent orchestration, MCP tools, Aspire/DevUI & hosting, Azure infrastructure, identity, deploy, evaluation, guardrails. Also handles expanding an existing agent. Use when the user says "build the agent from these decisions", "scaffold my MAF agent", "implement my code-first agent", "expand my existing agent with X", or any request to *build or extend* a code-first agent. Requires architectural decisions as input — if there are none, send the user to `agent-architect` first.
 tools: [vscode/askQuestions, read, search, web, agent, execute, edit, todo]
 ---
 
@@ -35,15 +35,18 @@ A **decisions document** from `agent-architect` (hosting, observability, tool su
    - Verify `dotnet build && dotnet test` succeed before continuing.
 
 2. **Implementation patterns** → invoke `maf-csharp-implementation` as a reference.
-   - Use to extend the bootstrap with real tools, instructions, orchestration.
+   - Use to extend the bootstrap with real tools, instructions, middleware, structured output.
    - The user now has a "Hello!" agent and a clear path to add their first real capability.
+   - **Coordinating multiple agents or deterministic steps?** → `maf-workflows-orchestration` (graph workflows + the sequential/concurrent/handoff/group-chat/magentic patterns, human-in-the-loop, checkpointing).
+   - **Tool surface beyond in-process C#?** → `maf-mcp-tools` (local + hosted MCP tools, or exposing the agent as an MCP server).
 
-3. **Local dev orchestration** (optional, recommended) → invoke `dotnet-aspire-apphost`.
+3. **Local dev & hosting** (optional, recommended) → invoke `dotnet-aspire-apphost`.
+   - Aspire AppHost + DevUI for local F5; ASP.NET Core self-hosting; Foundry Hosted Agents / Azure Functions noted as alternatives.
 
 4. **Model deployment** → invoke `foundry-model-deployment`.
    - Run when no Azure AI Foundry model deployment exists yet, or when adding a new agent that needs its own model.
-   - Skip if the user already has a Foundry inference endpoint and deployment name — just record them.
-   - Records `AzureAIFoundry__Endpoint` and `AzureAIFoundry__DeploymentName` — required inputs for `azure-container-apps-bicep` and `appsettings.json`.
+   - Skip if the user already has a Foundry project endpoint and deployment name — just record them.
+   - Records `AZURE_AI_PROJECT_ENDPOINT` and `AZURE_AI_MODEL_DEPLOYMENT_NAME` — required inputs for `azure-container-apps-bicep` and `appsettings.json`.
 
 5. **Infrastructure overview** → invoke `agent-infrastructure-overview`.
    - Walk the checklist. Route to leaves: `azure-container-apps-bicep`, `azure-devops-pipelines-for-agents`.
@@ -66,15 +69,17 @@ Diagnose what's missing before recommending anything. Ask the user to share the 
 | Symptom | Likely missing | Skill |
 |---|---|---|
 | "No documented architecture" | Decisions | send to `agent-architect` |
-| "Tools are mixed into the agent project" | Tools project boundary | `maf-csharp-implementation` |
+| "One big agent project is getting unwieldy" | Optional structure (slices / tool projects) | `maf-csharp-implementation` |
 | "Prompts are string literals in C#" | Embedded markdown | `maf-csharp-implementation` |
-| "No traces visible" | OTel wiring | `maf-csharp-implementation` + `appinsights-instrumentation` |
+| "Multiple agents / fixed multi-step flow" | Workflow or orchestration pattern | `maf-workflows-orchestration` |
+| "Want to reuse tools across agents / share an MCP server" | MCP tool surface | `maf-mcp-tools` |
+| "No traces visible" | OTel wiring (native `.UseOpenTelemetry()`) | `maf-csharp-implementation` + `appinsights-instrumentation` |
 | "Secrets in appsettings" | KV refs + UAMI | `agent-secrets-identity` + `azure-container-apps-bicep` |
 | "No model configured / new agent needs a model" | Model deployment | `foundry-model-deployment` |
 | "No tests" | Eval suite | `agent-evaluation-strategy` |
 | "Worried about PII / jailbreaks" | Guardrails | `agent-guardrails-safety` |
 | "Deploy is manual" | Pipeline | `azure-devops-pipelines-for-agents` |
-| "Local dev is painful" | Aspire AppHost | `dotnet-aspire-apphost` |
+| "Local dev is painful / want a UI to test" | Aspire AppHost + DevUI | `dotnet-aspire-apphost` |
 | "Agent runs model-generated code unsafely" | Sandbox | send to `agent-architect` / `agent-sandboxing` |
 
 Pick one gap. Fix it end-to-end. Then ask what's next. Don't try to fix everything at once.

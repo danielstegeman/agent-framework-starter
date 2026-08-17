@@ -8,25 +8,26 @@ param appName string
 param envName string
 param image string
 param location string = resourceGroup().location
+param environmentName string = 'prod'
 param keyVaultName string
 param appInsightsConnectionStringSecretName string = 'appinsights-connection-string'
-param foundryEndpoint string
-param foundryDeploymentName string
+param azureAiProjectEndpoint string
+param azureAiModelDeploymentName string
 
-resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
   name: '${appName}-id'
   location: location
 }
 
-resource env 'Microsoft.App/managedEnvironments@2024-03-01' existing = {
+resource env 'Microsoft.App/managedEnvironments@2026-01-01' existing = {
   name: envName
 }
 
-resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+resource kv 'Microsoft.KeyVault/vaults@2026-02-01' existing = {
   name: keyVaultName
 }
 
-resource app 'Microsoft.App/containerApps@2024-03-01' = {
+resource app 'Microsoft.App/containerApps@2026-01-01' = {
   name: appName
   location: location
   identity: {
@@ -62,11 +63,12 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           name: appName
           image: image
           env: [
-            { name: 'AzureAIFoundry__Endpoint',       value: foundryEndpoint }
-            { name: 'AzureAIFoundry__DeploymentName', value: foundryDeploymentName }
-            { name: 'AZURE_CLIENT_ID',             value: uami.properties.clientId }
+            { name: 'AZURE_AI_PROJECT_ENDPOINT',       value: azureAiProjectEndpoint }
+            { name: 'AZURE_AI_MODEL_DEPLOYMENT_NAME', value: azureAiModelDeploymentName }
+            { name: 'AZURE_CLIENT_ID',                value: uami.properties.clientId }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection-string' }
-            { name: 'OTEL_SERVICE_NAME',           value: appName }
+            { name: 'OTEL_SERVICE_NAME',              value: appName }
+            { name: 'OTEL_RESOURCE_ATTRIBUTES',       value: 'environment=${environmentName},version=${last(split(image, ':'))}' }
           ]
           resources: { cpu: json('0.5'), memory: '1Gi' }
           probes: [

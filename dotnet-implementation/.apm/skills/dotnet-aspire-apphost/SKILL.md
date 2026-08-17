@@ -1,100 +1,94 @@
 ---
 name: dotnet-aspire-apphost
-description: Add a .NET Aspire AppHost to a code-first agent solution to orchestrate local F5 development — agent service plus dependencies (OTLP dashboard, optional Redis / SQL / Cosmos emulator) — and generate the container manifest used to deploy to Azure Container Apps via azd. Use this skill when the user asks "set up Aspire for my agent", "I want F5 to work for my MAF agent", "give me a local dev story", "generate container manifest from Aspire", or "use Aspire AppHost to run my agent locally".
+description: "Choose and implement the local/hosting story for a .NET Microsoft Agent Framework agent: Aspire AppHost for local F5 orchestration and telemetry, DevUI for interactive testing/debugging, ASP.NET Core self-hosting with Microsoft.Agents.AI.Hosting, or alternatives such as Foundry Hosted Agents and Azure Functions/Durable hosting. Use when the user asks to host an agent, add DevUI, self-host a MAF agent, set up Aspire AppHost, or create a local dev loop for an agent."
 ---
 
-# .NET Aspire AppHost for a Code-First Agent
+# .NET Agent Hosting: Aspire AppHost, DevUI, and Self-hosting
 
-Add an Aspire AppHost project that runs the agent + its local dependencies under one `aspire run` and provides a free local dashboard for OTel traces, logs, and metrics.
+Start from the official docs, then add only the glue the repo needs:
 
-## When to use
+- [Host your agent (get-started Step 7)](https://learn.microsoft.com/en-us/agent-framework/get-started/hosting)
+- [Agent Framework hosting overview](https://learn.microsoft.com/en-us/agent-framework/hosting/)
+- [ASP.NET Core / generic host self-hosting](https://learn.microsoft.com/en-us/agent-framework/hosting/self-hosting)
+- [DevUI](https://learn.microsoft.com/en-us/agent-framework/integrations/by-component/ui/devui/)
+- [Aspire AppHost](https://aspire.dev/get-started/app-host/) and [Aspire dashboard](https://aspire.dev/dashboard/overview/)
 
-- New solution, or an existing one with no local-orchestration story.
-- The dev loop currently requires manually starting multiple processes.
-- You want a free Aspire dashboard for local OTel traces without standing up Jaeger or Docker.
+## Decision guide
 
-## Prerequisites
+| Need | Use | Tradeoff |
+| --- | --- | --- |
+| One-command local F5 for agent service + dependencies + traces/logs | **Aspire AppHost** | Development orchestration only; do not treat AppHost as the production runtime. |
+| Interactive local testing/debugging of agents and workflows | **DevUI** | A development sample UI, not a production UI or security boundary. |
+| The app owns HTTP routes, identity, authz, storage, scaling, and deployment | **ASP.NET Core self-hosting** with [`Microsoft.Agents.AI.Hosting`](https://www.nuget.org/packages/Microsoft.Agents.AI.Hosting) (prerelease) | More control, but the app owns infrastructure and request policy. |
+| Skip most host infrastructure and use managed agent hosting | **[Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent)** | Managed service path; less application-level control than self-hosting. |
+| Durable, event-driven, long-running, or serverless workloads | **[Azure Functions / Durable Extension](https://learn.microsoft.com/en-us/agent-framework/hosting/azure-functions)** | Durable Task model and Functions hosting conventions become part of the design. |
 
-- **.NET 10 SDK** — required for C# AppHosts.
-- **Aspire CLI** — install once: `dotnet tool install -g aspire`. Verify: `aspire --version`.
-- **Docker is NOT required** for this agent use-case. Docker is only needed if you add containerized dependencies (Redis, Postgres, etc.). The Aspire dashboard itself runs as a .NET process.
+## Aspire AppHost for local F5
 
-## What this skill produces
+Use Aspire when the local dev loop currently requires multiple terminals, local dependencies, or a separate telemetry viewer. Aspire gives the agent solution one `aspire run`, resource wiring, service discovery, and the local dashboard.
 
-1. A new project `src/<Agent>.AppHost/` created by `aspire init` (detects the `.sln`/`.slnx` and scaffolds a project-based AppHost automatically).
-2. A `Program.cs` in AppHost that declares the agent project as an Aspire resource.
-3. Aspire injects `OTEL_EXPORTER_OTLP_ENDPOINT` automatically — no manual env var needed.
-
-## Setup
+Typical setup:
 
 ```bash
-# From the solution root — aspire init detects .slnx/.sln and creates a project-based AppHost
 aspire init
-
-# Add project reference from AppHost to the agent host
 dotnet add src/<Agent>.AppHost reference src/<Agent>.Host/<Agent>.Host.csproj
 ```
 
-For containerized dependencies the agent uses (only if Docker is available):
+Keep the AppHost small: declare the agent host project, optional local dependencies, and development-only environment overrides. Aspire injects `OTEL_EXPORTER_OTLP_ENDPOINT` for resources it runs, so the agent's OpenTelemetry setup can export to the dashboard without hardcoded endpoints.
 
-```bash
-aspire add redis        # optional
-aspire add postgres     # optional
-```
+Rules:
 
-## AppHost Program.cs shape
+- AppHost is local/deployment-model glue, not the production agent host.
+- Do not put production endpoints or secrets in AppHost.
+- Add containerized dependencies only when Docker is available; otherwise model them as external resources or skip them for local dev.
+- Keep telemetry decisions in the agent host implementation; AppHost should only wire local observability.
 
-```csharp
-var builder = DistributedApplication.CreateBuilder(args);
-
-// The agent host — Aspire uses the strongly-typed Projects.<Name> generated from the ProjectReference
-var agent = builder.AddProject<Projects._Agent_Host>("agent");
-
-builder.Build().Run();
-```
-
-Aspire automatically injects `OTEL_EXPORTER_OTLP_ENDPOINT` and starts the dashboard. The agent's `AddAgentTelemetry(...)` (see [otel-azuremonitor.cs](../maf-csharp-implementation/references/otel-azuremonitor.cs)) already picks up OTLP when no App Insights connection string is set.
-
-## Running
-
-```bash
-# From the solution root (or the AppHost directory)
-aspire run
-```
-
-The CLI prints the dashboard URL, e.g. `Dashboard: https://localhost:17068/login?t=...`.
-
-## Rules
-
-- **AppHost is dev-only.** It is never deployed. The csproj should have `<IsAspireHost>true</IsAspireHost>`.
-- **No production endpoints in AppHost.** Use `.WithEnvironment(...)` for local overrides only, or rely on `appsettings.Development.json` in the agent host. Never put production secrets in AppHost.
-- **Containerized emulators require Docker.** If the machine cannot run Docker, do not add `AddRedis()`, `AddPostgres()`, or any `RunAsContainer()` / `RunAsEmulator()` calls. Model those as external resources or skip them for local dev.
-- **The OTel dashboard is the killer feature.** Make sure the agent uses OTel (it should already, per `maf-csharp-implementation`). Tool spans show up automatically.
-
-## Manifest generation for azd
-
-When the project also targets `azd`:
+If the project uses `azd`, the AppHost can still publish an Aspire manifest:
 
 ```bash
 dotnet run --project src/<Agent>.AppHost -- --publisher manifest --output-path ./aspire-manifest.json
 ```
 
-`azd init` consumes this and emits Bicep + GitHub Actions / ADO pipelines automatically. If the user wants ADO YAML produced specifically, prefer `azure-devops-pipelines-for-agents` over `azd`'s generated GHA workflow.
+Treat generated infra as a starting point, not a mandate.
 
-## When NOT to add Aspire
+## DevUI for local interactive testing/debugging
 
-- The agent has zero dependencies beyond Azure OpenAI **and** the team can set `OTEL_EXPORTER_OTLP_ENDPOINT` manually → just run `dotnet run` and point at a standalone dashboard or skip telemetry UI entirely.
-- The team uses Docker Compose religiously for local dev → don't fight that; map the agent into the existing compose file.
+Use [DevUI](https://learn.microsoft.com/en-us/agent-framework/integrations/by-component/ui/devui/) when developers need to chat with, inspect, and debug one or more local agents before wiring a real client UI.
+
+Packages are prerelease:
+
+- Agent service: [`Microsoft.Agents.AI.DevUI`](https://www.nuget.org/packages/Microsoft.Agents.AI.DevUI)
+- Aspire AppHost integration: [`Aspire.Hosting.AgentFramework.DevUI`](https://www.nuget.org/packages/Aspire.Hosting.AgentFramework.DevUI)
+
+Follow the DevUI docs for the exact endpoint mapping. In short:
+
+- The agent service registers named agents and exposes OpenAI Responses/Conversations endpoints.
+- The AppHost adds a DevUI resource and connects it to each agent service.
+- Agent names declared in the AppHost must match the names registered by the agent service.
+
+Do not ship DevUI as a production UX.
+
+## ASP.NET Core self-hosting
+
+Use [self-hosting](https://learn.microsoft.com/en-us/agent-framework/hosting/self-hosting) when the agent must live inside an application-owned ASP.NET Core or generic-host process.
+
+`Microsoft.Agents.AI.Hosting` (prerelease) registers `AIAgent`/workflow instances with DI and lets protocol packages resolve named agents. It does **not** remove the need to design:
+
+- authentication and authorization;
+- request validation, rate limits, and allowed model/tool policy;
+- session persistence and conversation storage;
+- deployment, scaling, health, and observability.
+
+Use the official self-hosting page for the current package/API shape instead of copying large samples into this skill.
+
+## Alternatives are options, not mandates
+
+- [Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent): choose when managed hosting, built-in session lifecycle, and Foundry integration matter more than owning the host infrastructure.
+- [Azure Functions / Durable Extension](https://learn.microsoft.com/en-us/agent-framework/hosting/azure-functions): choose for durable orchestration, long-running sessions, triggers, scale-to-zero, or event-driven workloads.
+- Plain `dotnet run`: acceptable for a simple agent with no local dependencies and no need for the Aspire dashboard or DevUI.
+- Docker Compose: acceptable when the team already standardizes on Compose; integrate the agent there rather than forcing Aspire.
 
 ## Hand-off
 
-- Production infra -> `azure-container-apps-bicep`.
-- CI/CD that *doesn't* use azd -> `azure-devops-pipelines-for-agents`.
-- CI/CD that *does* use azd -> `azure-prepare` then `azure-deploy`.
-- Implementation patterns -> `maf-csharp-implementation`.
-
-## Official Documentation
-
-- [.NET Aspire overview](https://learn.microsoft.com/en-us/dotnet/aspire/get-started/aspire-overview)
-- [Aspire AppHost](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/app-host-overview)
-- [Aspire dashboard](https://learn.microsoft.com/en-us/dotnet/aspire/fundamentals/dashboard/overview)
+- Agent implementation patterns -> the `maf-csharp-implementation` skill (in the **maf-core** package).
+- If the user asks for production infrastructure, first use the hosting overview to choose managed hosting vs self-hosting vs Functions/Durable; do not default to Azure Container Apps unless the user or architecture needs it.
