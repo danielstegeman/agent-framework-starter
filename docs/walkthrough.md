@@ -26,29 +26,29 @@ This curated aggregator pulls all five sub-packages (`maf-core`, `agent-design`,
 
 **You:** *"Help me design a code-first agent that summarises Azure DevOps work items."*
 
-The **`agent-architect`** picks up the request, confirms the Azure extensions are installed, then asks:
+The **`agent-architect`** picks up the request, discovers which sub-packages and skills are actually installed in this workspace, confirms the Azure extensions are present, then asks:
 > Greenfield or expansion? Where would you like to start?
 
 **You:** *"Greenfield. Walk me through the decisions."*
 
 ### 1. Decisions (`agent-architecture-decisions`, driven by `agent-architect`)
 
-The architect proposes only **implementation-backed** options and grills you on any alternative. You're walked through:
+The architect recommends only what it found installed in step 0, and grills you on any alternative. Starting from a few capability-shaping questions (trigger, what it needs to do, single vs multi-agent), it opens only the branches those answers imply:
 - **Trigger model**: webhook from ADO on work-item update + a CLI for testing.
 - **Observability**: OTel -> App Insights (prod), Aspire dashboard (local).
 - **Hosting**: Azure Container Apps, public ingress (recommended starting point — chosen after comparing App Service / Functions / Foundry Hosted Agents).
 - **Tools**: in-process tools class talking to ADO REST API (recommended — an MCP tool surface was considered and deferred).
 - **Context sources**: tool-fetched only — no RAG.
-- **Sandbox**: the agent runs no model-generated code — recorded as "no execution".
-- **Flexibility vs determinism**: single agent, one tool call per run — no workflow/orchestrator needed yet.
+- **Sandbox**: the agent runs no model-generated code — recorded as "no execution", so this branch closes immediately.
+- **Flexibility vs determinism**: single agent, one tool call per run — no workflow/orchestrator branch opened.
 - **Guardrails**: PII redaction on the work-item body before it hits the model.
 - **Identity**: UAMI for the workload, federated MI for the ADO pipeline.
 
-Output: `docs/adr/0001-..0010-*.md` capturing each decision (chosen option, backed-or-alternative, rationale, revisit trigger).
+Output: a single `docs/decisions.md` capturing each decision actually made (chosen option, backed skill or custom alternative, one-line rationale, revisit trigger).
 
 ### Hand-off to the builder
 
-The architect confirms shared understanding and **hands off to `agent-builder`** with the decisions document as input. From here the builder owns the conversation.
+The architect confirms shared understanding and **hands off to `agent-builder`** with the decisions summary as input. From here the builder owns the conversation.
 
 ### 2. Scaffold (`dotnet-agent-bootstrap`, driven by `agent-builder`)
 

@@ -38,10 +38,13 @@ A **decisions document** from `agent-architect` (hosting, observability, tool su
    - Use to extend the bootstrap with real tools, instructions, middleware, structured output.
    - The user now has a "Hello!" agent and a clear path to add their first real capability.
    - **Coordinating multiple agents or deterministic steps?** → `maf-workflows-orchestration` (graph workflows + the sequential/concurrent/handoff/group-chat/magentic patterns, human-in-the-loop, checkpointing).
-   - **Tool surface beyond in-process C#?** → `maf-mcp-tools` (local + hosted MCP tools, or exposing the agent as an MCP server).
+   - **Tool surface beyond in-process C#?** → `maf-mcp-tools` (local + hosted MCP tools, or exposing the agent as an MCP server); `maf-hosted-tools` (Foundry-hosted web search, code interpreter, file search, Bing grounding, and other provider-executed tools).
+   - **Agent needs memory beyond one conversation?** → `maf-memory-context` (memory providers, context providers, persistence, RAG).
+   - **Consuming an existing service-managed or remote agent instead of building one?** → `maf-remote-agents` (Foundry Prompt/Hosted Agents, Copilot Studio, A2A).
 
 3. **Local dev & hosting** (optional, recommended) → invoke `dotnet-aspire-apphost`.
    - Aspire AppHost + DevUI for local F5; ASP.NET Core self-hosting; Foundry Hosted Agents / Azure Functions noted as alternatives.
+   - **Want fully managed hosting instead of self-hosting?** → `foundry-hosted-agents` (deploy the whole agent to Foundry Agent Service via `azd ai agent`).
 
 4. **Model deployment** → invoke `foundry-model-deployment`.
    - Run when no Azure AI Foundry model deployment exists yet, or when adding a new agent that needs its own model.
@@ -73,6 +76,10 @@ Diagnose what's missing before recommending anything. Ask the user to share the 
 | "Prompts are string literals in C#" | Embedded markdown | `maf-csharp-implementation` |
 | "Multiple agents / fixed multi-step flow" | Workflow or orchestration pattern | `maf-workflows-orchestration` |
 | "Want to reuse tools across agents / share an MCP server" | MCP tool surface | `maf-mcp-tools` |
+| "Need web search / code interpreter / file search without hosting it" | Foundry-hosted tools | `maf-hosted-tools` |
+| "Agent forgets facts across sessions / needs injected context" | Memory & context providers | `maf-memory-context` |
+| "Want to consume an existing Foundry / Copilot Studio / A2A agent" | Remote agent client | `maf-remote-agents` |
+| "Don't want to operate the host / want managed hosting" | Foundry Hosted Agents | `foundry-hosted-agents` |
 | "No traces visible" | OTel wiring (native `.UseOpenTelemetry()`) | `maf-csharp-implementation` + `appinsights-instrumentation` |
 | "Secrets in appsettings" | KV refs + UAMI | `agent-secrets-identity` + `azure-container-apps-bicep` |
 | "No model configured / new agent needs a model" | Model deployment | `foundry-model-deployment` |

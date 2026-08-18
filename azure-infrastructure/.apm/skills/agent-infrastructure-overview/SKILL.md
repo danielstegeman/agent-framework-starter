@@ -13,7 +13,7 @@ Start by choosing who operates the runtime:
 
 | Option | Pick when | Tradeoff |
 |---|---|---|
-| **Foundry Hosted Agents** | You can use the managed Foundry Agent Service runtime and want Microsoft to handle scaling, session lifecycle, and much of the platform integration. | Skips most Container Apps, ACR, and custom pipeline infrastructure; less control over custom HTTP hosting and sidecars. |
+| **Foundry Hosted Agents** | You can use the managed Foundry Agent Service runtime and want Microsoft to handle scaling, session lifecycle, and much of the platform integration. See the `foundry-hosted-agents` skill. | Skips most Container Apps, ACR, and custom pipeline infrastructure; less control over custom HTTP hosting and sidecars. |
 | **Azure Container Apps** | You want a self-hosted container with HTTP endpoints, background workers, KEDA scaling, revision control, or custom networking. | You operate the container, registry, identity, pipeline, observability, and environment promotion. |
 | **App Service** | You already standardise on App Service and need a straightforward web app host more than container-level control. | Simpler hosting, less event-driven/container-native flexibility than Container Apps. |
 | **Azure Functions** | The agent is primarily event-driven or needs durable workflow execution with serverless operations. | Best for trigger-oriented work; less natural for always-on custom web APIs. |
@@ -72,7 +72,7 @@ See the native OpenTelemetry guidance in the `maf-csharp-implementation` skill (
 
 ### 6. Hosting platform
 
-Do not present Container Apps as mandatory. It is the recommended self-hosted option in this repo when the agent is containerised and needs HTTP/background hosting. Foundry Hosted Agents, App Service, Azure Functions, and AKS remain valid alternatives depending on the first decision.
+Do not present Container Apps as mandatory. It is the recommended self-hosted option in this repo when the agent is containerised and needs HTTP/background hosting. Foundry Hosted Agents (see the `foundry-hosted-agents` skill), App Service, Azure Functions, and AKS remain valid alternatives depending on the first decision.
 
 ### 7. Deployment pipeline
 

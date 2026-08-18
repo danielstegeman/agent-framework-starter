@@ -20,7 +20,7 @@ Start from the official docs, then add only the glue the repo needs:
 | One-command local F5 for agent service + dependencies + traces/logs | **Aspire AppHost** | Development orchestration only; do not treat AppHost as the production runtime. |
 | Interactive local testing/debugging of agents and workflows | **DevUI** | A development sample UI, not a production UI or security boundary. |
 | The app owns HTTP routes, identity, authz, storage, scaling, and deployment | **ASP.NET Core self-hosting** with [`Microsoft.Agents.AI.Hosting`](https://www.nuget.org/packages/Microsoft.Agents.AI.Hosting) (prerelease) | More control, but the app owns infrastructure and request policy. |
-| Skip most host infrastructure and use managed agent hosting | **[Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent)** | Managed service path; less application-level control than self-hosting. |
+| Skip most host infrastructure and use managed agent hosting | **[Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent)** (see the `foundry-hosted-agents` skill) | Managed service path; less application-level control than self-hosting. |
 | Durable, event-driven, long-running, or serverless workloads | **[Azure Functions / Durable Extension](https://learn.microsoft.com/en-us/agent-framework/hosting/azure-functions)** | Durable Task model and Functions hosting conventions become part of the design. |
 
 ## Aspire AppHost for local F5
@@ -83,7 +83,7 @@ Use the official self-hosting page for the current package/API shape instead of 
 
 ## Alternatives are options, not mandates
 
-- [Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent): choose when managed hosting, built-in session lifecycle, and Foundry integration matter more than owning the host infrastructure.
+- [Foundry Hosted Agents](https://learn.microsoft.com/en-us/agent-framework/hosting/foundry-hosted-agent): choose when managed hosting, built-in session lifecycle, and Foundry integration matter more than owning the host infrastructure. Implementation details live in the `foundry-hosted-agents` skill.
 - [Azure Functions / Durable Extension](https://learn.microsoft.com/en-us/agent-framework/hosting/azure-functions): choose for durable orchestration, long-running sessions, triggers, scale-to-zero, or event-driven workloads.
 - Plain `dotnet run`: acceptable for a simple agent with no local dependencies and no need for the Aspire dashboard or DevUI.
 - Docker Compose: acceptable when the team already standardizes on Compose; integrate the agent there rather than forcing Aspire.

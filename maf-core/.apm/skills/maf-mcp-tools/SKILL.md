@@ -66,6 +66,8 @@ Good fits:
 
 Check the [tools overview](https://learn.microsoft.com/en-us/agent-framework/agents/tools/) for current provider/tool support before designing against a hosted capability.
 
+For **non-MCP** provider-executed tools — Foundry-hosted web search, code interpreter, file search, Bing grounding, Azure AI Search, and similar — see the sibling `maf-hosted-tools` skill. This skill covers only the MCP tool surface.
+
 ## Expose your agent as an MCP server
 
 Use [Self-host agents as MCP tools](https://learn.microsoft.com/en-us/agent-framework/hosting/self-hosting/mcp) when another system should call your agent or workflow as a native MCP tool.
@@ -96,6 +98,7 @@ Design rules:
 ## Hand-off
 
 - C# implementation shape and DI wiring -> `maf-csharp-implementation`.
+- Non-MCP Foundry-hosted tools (web search, code interpreter, file search) -> `maf-hosted-tools`.
 - Multi-agent workflows and human approval -> `maf-workflows-orchestration`.
 - Hosting the agent service -> hosting/Aspire/Azure skills in this package.
 
